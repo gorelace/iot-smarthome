@@ -1,0 +1,7 @@
+firmware/.pio/
+firmware/.vscode/
+firmware/include/secrets.h
+__pycache__/
+*.pyc
+broker/data/
+broker/*.log
