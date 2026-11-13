@@ -3,9 +3,16 @@
 
 // ---------------- Pins (ESP32-S3) ----------------
 #define PIN_IR_RX   5   // VS1838B OUT
+#define PIN_IR_TX  15   // IR blaster: IR LED (via ~100R + NPN/MOSFET driver, or a ready-made KY-005 module) signal pin
 #define PIN_MQ2_AO  6   // MQ-2 analog out (ADC1_CH5) -- see voltage warning below
 #define PIN_DHT22   7   // DHT22 data (needs a 4.7k-10k pull-up; most modules have one)
+#define PIN_I2C_SDA 9   // light sensor (BH1750) SDA
+#define PIN_I2C_SCL 8   // light sensor (BH1750) SCL
 #define PIN_BUZZER -1   // not wired yet; set a GPIO to enable the local gas siren
+#define PIN_SERVO   4   // servo signal (orange/yellow wire). Power the servo from 5V, NOT the 3V3 pin; share GND.
+#define SERVO_MIN_US  500    // pulse width at 0 deg   (SG90: 500, MG90S: 500)
+#define SERVO_MAX_US 2400    // pulse width at 180 deg (SG90: 2400)
+#define SERVO_LEDC_CH 2      // LEDC channel used for the servo PWM
 
 // Room name used in topics: <MQTT_BASE>/<ROOM>/sensors
 #define ROOM "livingroom"
@@ -16,6 +23,7 @@
 #define MQ2_AVG_SAMPLES        20     // moving average window (20 x 100 ms = 2 s)
 #define MQ2_WARMUP_MS       60000UL   // heater warm-up before readings are trusted
 #define IR_LEARN_TIMEOUT_MS 15000UL
+#define IR_DEBOUNCE_MS        300UL   // identical IR code within this gap of the previous frame = same button press
 
 // ---------------- DHT22 calibration ----------------
 // Added to every reading. Compare against a trusted thermometer placed next to the sensor

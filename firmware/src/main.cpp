@@ -10,6 +10,8 @@
 // Subscribes:
 //   home/livingroom/config/set     {"gas_threshold":1200,"interval_ms":3000} or {"cmd":"calibrate"|"reboot"|"clear_ir"}
 //   home/livingroom/ir/learn       {"device":"fan","cmd":"power"} -> next IR code is saved to flash
+//   home/livingroom/config/set     also: {"cmd":"ir_delete","key":"fan.power"}, {"cmd":"ir_rename","key":"fan.power","device":"tv","name":"vol_up"}
+//   home/livingroom/ir/codes       (published, retained) list of learned codes
 //
 // The gas safety rule runs locally, so it keeps working when Wi-Fi or the broker is down.
 
@@ -20,8 +22,10 @@
 #include <ArduinoJson.h>
 #include <DHTesp.h>
 #include <Preferences.h>
+#include <Wire.h>
 #include <IRremote.hpp>
 #include <lwip/dns.h>
+#include <nvs.h>
 
 #include "config.h"
 #if __has_include("secrets.h")
@@ -39,6 +43,11 @@ static const String T_CONFIGSET = T_ROOM + "/config/set";
 static const String T_IR_RX     = T_ROOM + "/ir/rx";
 static const String T_IR_LEARN  = T_ROOM + "/ir/learn";
 static const String T_IR_LSTATE = T_ROOM + "/ir/learn/state";
+static const String T_IR_CODES  = T_ROOM + "/ir/codes";
+static const String T_IR_SEND   = T_ROOM + "/ir/send";
+static const String T_IR_SSTATE = T_ROOM + "/ir/send/state";
+static const String T_SERVO_SET = T_ROOM + "/servo/set";
+static const String T_SERVO_ST  = T_ROOM + "/servo/state";
 static const String T_ALERT     = String(MQTT_BASE) + "/safety/alert";
 
 // ---------------------------------------------------------------- globals
@@ -47,7 +56,7 @@ WiFiClientSecure net;
 #else
 WiFiClient net;
 #endif
-MQTTClient mqtt(1024);
+MQTTClient mqtt(4096);
 DHTesp dht;
 Preferences prefs;
 String clientId;
@@ -64,6 +73,18 @@ float mq2Samples[MQ2_AVG_SAMPLES];
 int mq2Idx = 0, mq2Count = 0;
 float gasMv = 0, gasRs = 0, gasRatio = 0, gasPpm = 0;
 bool gasReady = false, gasAlarm = false;
+
+// light sensor (BH1750 on I2C)
+uint8_t luxAddr = 0;        // 0 = not found
+float lux = NAN;
+uint32_t lastLux = 0, lastLuxProbe = 0;
+String i2cFound = "";       // result of the last I2C bus scan, shown in the retained config
+
+// servo (test): current angle and optional non-blocking sweep
+int servoAngle = 90;
+bool servoSweep = false;
+int servoDir = 1;
+uint32_t lastServoStep = 0;
 
 // IR learning
 String learnDevice, learnCmd;
@@ -118,8 +139,14 @@ void publishConfig() {
   d["interval_ms"] = publishMs;
   d["mq2_r0_kohm"] = mq2R0;
   d["pins"]["ir_rx"] = PIN_IR_RX;
+  d["pins"]["ir_tx"] = PIN_IR_TX;
   d["pins"]["mq2"] = PIN_MQ2_AO;
   d["pins"]["dht22"] = PIN_DHT22;
+  d["pins"]["servo"] = PIN_SERVO;
+  d["pins"]["sda"] = PIN_I2C_SDA;
+  d["pins"]["scl"] = PIN_I2C_SCL;
+  d["lux_sensor"] = luxAddr ? "BH1750" : "none";
+  d["i2c_devices"] = i2cFound.length() ? i2cFound : "none";
   d["fw"] = __DATE__ " " __TIME__;
   d["ip"] = WiFi.localIP().toString();
   publishJson(T_CONFIG, d, true, 1);
@@ -208,6 +235,7 @@ void publishTelemetry() {
     d["heat_index"] = roundf(heatIndex * 10) / 10;
   }
   d["dht_status"] = dhtStatus;
+  if (luxAddr && !isnan(lux)) d["lux"] = roundf(lux * 10) / 10;
   d["gas_mv"] = roundf(gasMv);
   d["gas_ready"] = gasReady;
   if (gasReady) {
@@ -227,10 +255,177 @@ void publishTelemetry() {
   publishJson(T_SENSORS, d);
 }
 
+// ---------------------------------------------------------------- BH1750 light sensor
+bool i2cWrite(uint8_t addr, uint8_t b) {
+  Wire.beginTransmission(addr);
+  Wire.write(b);
+  return Wire.endTransmission() == 0;
+}
+
+void scanI2c() {
+  String found;
+  for (uint8_t a = 1; a < 127; a++) {
+    Wire.beginTransmission(a);
+    if (Wire.endTransmission() == 0) { char b[8]; snprintf(b, sizeof b, "0x%02X ", a); found += b; }
+  }
+  found.trim();
+  Serial.printf("[I2C] devices: %s\n", found.length() ? found.c_str() : "none (check SDA/SCL wiring, 3V3, GND)");
+  if (found != i2cFound) { i2cFound = found; if (mqtt.connected()) publishConfig(); }
+}
+
+// Try both BH1750 addresses (ADDR pin low = 0x23, high = 0x5C) and start continuous high-res mode.
+bool initBh1750() {
+  for (uint8_t a : {(uint8_t)0x23, (uint8_t)0x5C}) {
+    if (i2cWrite(a, 0x01) && i2cWrite(a, 0x10)) {  // power on, continuous H-resolution (1 lx, 120-180 ms)
+      luxAddr = a;
+      Serial.printf("[LUX] BH1750 found at 0x%02X\n", a);
+      return true;
+    }
+  }
+  luxAddr = 0;
+  return false;
+}
+
+void readLux() {
+  if (!luxAddr) {
+    if (millis() - lastLuxProbe > 10000 || !lastLuxProbe) {  // retry every 10 s in case it was plugged in late
+      lastLuxProbe = millis() ? millis() : 1;
+      scanI2c();
+      initBh1750();
+    }
+    return;
+  }
+  if (Wire.requestFrom((int)luxAddr, 2) == 2) {
+    uint16_t raw = (Wire.read() << 8) | Wire.read();
+    lux = raw / 1.2f;
+  } else {
+    Serial.println("[LUX] read failed, will re-probe");
+    luxAddr = 0;
+    lux = NAN;
+  }
+}
+
+// ---------------------------------------------------------------- servo
+void publishServoState() {
+  JsonDocument d;
+  d["angle"] = servoAngle;
+  d["sweep"] = servoSweep;
+  d["pin"] = PIN_SERVO;
+  publishJson(T_SERVO_ST, d, true, 0);
+}
+
+void servoWrite(int angle) {
+  servoAngle = constrain(angle, 0, 180);
+  uint32_t us = SERVO_MIN_US + (uint32_t)(SERVO_MAX_US - SERVO_MIN_US) * servoAngle / 180;
+  ledcWrite(SERVO_LEDC_CH, (uint32_t)((uint64_t)us * 16383 / 20000));  // 14-bit duty (S3 max), 20 ms period
+}
+
+void servoLoop() {
+  if (!servoSweep || millis() - lastServoStep < 20) return;
+  lastServoStep = millis();
+  int next = servoAngle + servoDir * 2;
+  if (next >= 180) { next = 180; servoDir = -1; }
+  if (next <= 0) { next = 0; servoDir = 1; }
+  servoWrite(next);
+}
+
+// ---------------------------------------------------------------- IR blaster
+decode_type_t protocolFromName(const String &name) {
+  for (int p = 1; p <= OTHER; p++)
+    if (name.equalsIgnoreCase(getProtocolString((decode_type_t)p))) return (decode_type_t)p;
+  return UNKNOWN;
+}
+
+// Send one code. Returns false if the protocol is unknown / not sendable.
+bool irSend(const String &protoName, uint16_t address, uint16_t command, int bits, int repeats) {
+  decode_type_t proto = protocolFromName(protoName);
+  if (proto == UNKNOWN || proto == PULSE_WIDTH || proto == PULSE_DISTANCE || proto == OTHER) return false;
+  IRData data = {};
+  data.protocol = proto;
+  data.address = address;
+  data.command = command;
+  data.numberOfBits = bits;
+  data.flags = IRDATA_FLAGS_EMPTY;
+  if (repeats < 0) repeats = (proto == SONY) ? 2 : 0;  // Sony wants the frame sent 3x in total
+  IrSender.write(&data, repeats);  // the receiver stays on, so pointing the blaster at the VS1838B is a loopback test
+  return true;
+}
+
+void handleIrSend(JsonDocument &d) {
+  String key = d["key"] | "";
+  String proto = d["protocol"] | "";
+  String addrS = d["address"] | "0";
+  String cmdS = d["command"] | "0";
+  int bits = d["bits"] | 0;
+  int repeats = d["repeats"] | -1;
+  if (key.length()) {  // replay a learned code: "proto,addr,cmd,raw,bits"
+    prefs.begin("ir", true);
+    String val = prefs.getString(key.c_str(), "");
+    prefs.end();
+    String f[5];
+    int n = 0, start = 0;
+    for (int i = 0; i <= (int)val.length() && n < 5; i++)
+      if (i == (int)val.length() || val[i] == ',') { f[n++] = val.substring(start, i); start = i + 1; }
+    if (n < 5) {
+      JsonDocument s; s["state"] = "error"; s["error"] = "unknown key"; s["key"] = key;
+      publishJson(T_IR_SSTATE, s);
+      return;
+    }
+    proto = f[0]; addrS = f[1]; cmdS = f[2]; bits = f[4].toInt();
+  }
+  uint16_t addr = (uint16_t)strtoul(addrS.c_str(), nullptr, 0);
+  uint16_t cmd = (uint16_t)strtoul(cmdS.c_str(), nullptr, 0);
+  bool ok = irSend(proto, addr, cmd, bits, repeats);
+  Serial.printf("[IRTX] %s %s addr=0x%X cmd=0x%X bits=%d -> %s\n", key.c_str(), proto.c_str(), addr, cmd, bits, ok ? "sent" : "FAILED");
+  JsonDocument s;
+  s["state"] = ok ? "sent" : "error";
+  if (!ok) s["error"] = "unsupported protocol";
+  if (key.length()) s["key"] = key;
+  s["protocol"] = proto;
+  s["address"] = addrS;
+  s["command"] = cmdS;
+  publishJson(T_IR_SSTATE, s);
+}
+
 // ---------------------------------------------------------------- IR receiver
 String learnKey(const String &dev, const String &cmd) {
   // NVS keys are max 15 chars
   return dev.substring(0, 7) + "." + cmd.substring(0, 7);
+}
+
+// Publish every learned code (retained) so the dashboard can list / rename / delete them.
+// Values are stored as "proto,addr,cmd,raw,bits" under keys "<device>.<cmd>" in NVS namespace "ir".
+void publishIrCodes() {
+  JsonDocument d;
+  JsonArray arr = d["codes"].to<JsonArray>();
+  nvs_iterator_t it = nvs_entry_find("nvs", "ir", NVS_TYPE_STR);
+  prefs.begin("ir", true);
+  while (it != nullptr && arr.size() < 40) {
+    nvs_entry_info_t info;
+    nvs_entry_info(it, &info);
+    String key = info.key;
+    String val = prefs.getString(key.c_str(), "");
+    // split "proto,addr,cmd,raw,bits"
+    String f[5];
+    int n = 0, start = 0;
+    for (int i = 0; i <= (int)val.length() && n < 5; i++) {
+      if (i == (int)val.length() || val[i] == ',') { f[n++] = val.substring(start, i); start = i + 1; }
+    }
+    int dot = key.indexOf('.');
+    JsonObject o = arr.add<JsonObject>();
+    o["key"] = key;
+    o["device"] = dot > 0 ? key.substring(0, dot) : key;
+    o["cmd"] = dot > 0 ? key.substring(dot + 1) : "";
+    o["protocol"] = f[0];
+    o["address"] = f[1];
+    o["command"] = f[2];
+    o["raw"] = f[3];
+    o["bits"] = f[4].toInt();
+    it = nvs_entry_next(it);
+  }
+  prefs.end();
+  if (it) nvs_release_iterator(it);
+  publishJson(T_IR_CODES, d, true, 1);
 }
 
 void handleIr() {
@@ -249,7 +444,21 @@ void handleIr() {
     }
   }
 
+  // Sony SIRC (and some others) resend the full frame every ~45 ms while a button is held, and the
+  // library does not flag those as repeats. Drop an identical code seen again within IR_DEBOUNCE_MS
+  // of the previous frame; holding a button keeps extending the window, so it counts as one press.
+  static uint32_t lastIrAt = 0;
+  static uint16_t lastIrProto = 0xFFFF, lastIrAddr = 0xFFFF, lastIrCmd = 0xFFFF;
+  bool dup = false;
   if (!repeat && !noise) {
+    uint32_t nowMs = millis();
+    dup = lastIrAt && nowMs - lastIrAt < IR_DEBOUNCE_MS && ir.protocol == lastIrProto &&
+          ir.address == lastIrAddr && ir.command == lastIrCmd;
+    lastIrAt = nowMs;
+    lastIrProto = ir.protocol; lastIrAddr = ir.address; lastIrCmd = ir.command;
+  }
+
+  if (!repeat && !noise && !dup) {
     char raw[20], addr[8], cmd[8];
     snprintf(raw, sizeof raw, "0x%llX", (unsigned long long)ir.decodedRawData);
     snprintf(addr, sizeof addr, "0x%X", ir.address);
@@ -280,6 +489,7 @@ void handleIr() {
       s["key"] = key;
       s["code"] = d;
       publishJson(T_IR_LSTATE, s);
+      publishIrCodes();
       learnUntil = 0;
     }
   }
@@ -313,10 +523,38 @@ void handleMessage(const Msg &m) {
     if (d["interval_ms"].is<uint32_t>()) publishMs = constrain(d["interval_ms"].as<uint32_t>(), 1000u, 60000u);
     const char *cmd = d["cmd"] | "";
     if (!strcmp(cmd, "calibrate")) calibrateMq2();
-    else if (!strcmp(cmd, "clear_ir")) { prefs.begin("ir", false); prefs.clear(); prefs.end(); }
+    else if (!strcmp(cmd, "clear_ir")) { prefs.begin("ir", false); prefs.clear(); prefs.end(); publishIrCodes(); }
+    else if (!strcmp(cmd, "ir_delete")) {
+      String key = d["key"] | "";
+      prefs.begin("ir", false); prefs.remove(key.c_str()); prefs.end();
+      Serial.printf("[IR] deleted %s\n", key.c_str());
+      publishIrCodes();
+    } else if (!strcmp(cmd, "ir_rename")) {
+      String key = d["key"] | "";
+      String nk = learnKey(String(d["device"] | ""), String(d["name"] | ""));
+      if (key.length() && nk.length() > 1 && nk != key && nk[0] != '.' && nk[nk.length() - 1] != '.') {
+        prefs.begin("ir", false);
+        String val = prefs.getString(key.c_str(), "");
+        if (val.length()) { prefs.putString(nk.c_str(), val); prefs.remove(key.c_str()); }
+        prefs.end();
+        Serial.printf("[IR] renamed %s -> %s\n", key.c_str(), nk.c_str());
+      }
+      publishIrCodes();
+    }
     else if (!strcmp(cmd, "reboot")) { mqtt.publish(T_STATUS, "offline", true, 1); delay(200); ESP.restart(); }
     saveSettings();
     publishConfig();
+  } else if (m.topic == T_IR_SEND) {
+    handleIrSend(d);
+  } else if (m.topic == T_SERVO_SET) {
+    // {"angle":0..180}  |  {"sweep":true|false}
+    if (d["sweep"].is<bool>()) servoSweep = d["sweep"].as<bool>();
+    if (d["angle"].is<float>()) {
+      servoSweep = false;
+      servoWrite((int)roundf(d["angle"].as<float>()));
+    }
+    Serial.printf("[SERVO] angle=%d sweep=%d\n", servoAngle, servoSweep);
+    publishServoState();
   } else if (m.topic == T_IR_LEARN) {
     learnDevice = d["device"] | "dev";
     learnCmd = d["cmd"] | "cmd";
@@ -348,7 +586,11 @@ void connectMqtt() {
   mqtt.publish(T_STATUS, "online", true, 1);
   mqtt.subscribe(T_CONFIGSET, 1);
   mqtt.subscribe(T_IR_LEARN, 1);
+  mqtt.subscribe(T_SERVO_SET, 1);
+  mqtt.subscribe(T_IR_SEND, 1);
   publishConfig();
+  publishServoState();
+  publishIrCodes();
   publishAlert();  // refresh the retained alert so it matches the real state
   updateLed();
 }
@@ -364,6 +606,14 @@ void setup() {
   analogSetPinAttenuation(PIN_MQ2_AO, ADC_11db);  // ~0-3.1 V range
   dht.setup(PIN_DHT22, DHTesp::DHT22);
   IrReceiver.begin(PIN_IR_RX, DISABLE_LED_FEEDBACK);
+  IrSender.begin(PIN_IR_TX, DISABLE_LED_FEEDBACK, 0);
+  Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+  Wire.setTimeOut(50);
+  scanI2c();
+  initBh1750();
+  ledcSetup(SERVO_LEDC_CH, 50, 14);  // 50 Hz, 14-bit (max on ESP32-S3)
+  ledcAttachPin(PIN_SERVO, SERVO_LEDC_CH);
+  servoWrite(servoAngle);
 #if PIN_BUZZER >= 0
   pinMode(PIN_BUZZER, OUTPUT);
 #endif
@@ -444,9 +694,11 @@ void loop() {
   uint32_t now = millis();
   if (now - lastMq2 >= MQ2_SAMPLE_MS) { lastMq2 = now; sampleMq2(); }
   if (now - lastDht >= 2500 || !lastDht) { lastDht = now ? now : 1; readDht(); }
+  if (now - lastLux >= 1000) { lastLux = now; readLux(); }
   if (now - lastPublish >= publishMs) { lastPublish = now; publishTelemetry(); }
 
   handleIr();
   checkLearnTimeout();
+  servoLoop();
   delay(5);
 }

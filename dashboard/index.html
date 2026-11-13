@@ -136,6 +136,8 @@ details summary { cursor: pointer; color: var(--text-2); font-size: 14px; }
       <div class="value" id="vHum">—<small>%</small></div><div class="sub" id="sHum">&nbsp;</div></div>
     <div class="card tile"><div class="label"><span class="swatch" style="background:var(--s-gas)"></span><span data-i18n="gas">Khí gas / khói</span></div>
       <div class="value" id="vGas">—<small>ppm</small></div><div class="sub" id="sGas">&nbsp;</div></div>
+    <div class="card tile"><div class="label"><span class="swatch" style="background:#d9a400"></span><span data-i18n="lux">Ánh sáng</span></div>
+      <div class="value" id="vLux">—<small>lux</small></div><div class="sub" id="sLux">&nbsp;</div></div>
     <div class="card tile"><div class="label" data-i18n="wifi">Wi-Fi</div>
       <div class="value" id="vRssi">—<small>dBm</small></div><div class="sub" id="sRssi">&nbsp;</div></div>
   </div>
@@ -164,6 +166,20 @@ details summary { cursor: pointer; color: var(--text-2); font-size: 14px; }
       <div class="scroll" style="margin-top:10px">
         <table><thead><tr><th data-i18n="time">Giờ</th><th data-i18n="proto">Giao thức</th><th>Addr</th><th>Cmd</th><th>Raw</th></tr></thead>
         <tbody id="irBody"><tr><td colspan="5" class="empty" data-i18n="irEmpty">Chưa nhận mã nào — bấm thử một nút trên remote.</td></tr></tbody></table>
+      </div>
+      <h2 style="margin-top:18px"><span data-i18n="savedTitle">Mã đã học</span>
+        <button id="clearIrBtn" style="float:right" data-i18n="clearAll">Xoá tất cả</button></h2>
+      <div class="row">
+        <span data-i18n="txTest" style="font-size:13px;color:var(--text-2)">Thử phát IR (GPIO 15):</span>
+        <select id="txProto"><option>Sony</option><option>NEC</option><option>Samsung</option><option>LG</option><option>RC5</option><option>RC6</option></select>
+        <input id="txAddr" value="0x1" style="max-width:70px" title="address">
+        <input id="txCmd" value="0x2" style="max-width:70px" title="command">
+        <input id="txBits" value="12" style="max-width:50px" title="bits (Sony: 12/15/20)">
+        <button class="primary" id="txBtn" data-i18n="send">Gửi</button>
+      </div>
+      <div class="scroll">
+        <table><thead><tr><th data-i18n="dev">Thiết bị</th><th data-i18n="btn">Nút</th><th data-i18n="proto">Giao thức</th><th>Addr</th><th>Cmd</th><th></th></tr></thead>
+        <tbody id="codesBody"><tr><td colspan="6" class="empty" data-i18n="codesEmpty">Chưa có mã nào được học.</td></tr></tbody></table>
       </div>
     </div>
 
@@ -195,6 +211,20 @@ details summary { cursor: pointer; color: var(--text-2); font-size: 14px; }
     </div>
   </div>
 
+  <div class="card" style="margin-top:12px">
+    <h2><span data-i18n="servoTitle">Servo (GPIO 4)</span> <span id="servoPin" class="mono" style="font-weight:400;color:var(--muted)"></span></h2>
+    <div class="row">
+      <input type="range" id="servoSlider" min="0" max="180" step="1" value="90" style="flex:1">
+      <b id="servoVal" style="min-width:48px;text-align:right">90°</b>
+    </div>
+    <div class="row">
+      <button data-angle="0">0°</button><button data-angle="45">45°</button><button data-angle="90">90°</button>
+      <button data-angle="135">135°</button><button data-angle="180">180°</button>
+      <button class="primary" id="servoSweepBtn" data-i18n="servoSweep">Quét tự động</button>
+    </div>
+    <p class="note" id="servoInfo" data-i18n="servoHint">Kéo thanh trượt hoặc bấm góc để điều khiển servo qua MQTT.</p>
+  </div>
+
   <details class="card" style="margin-top:12px">
     <summary data-i18n="table">Bảng dữ liệu gần nhất</summary>
     <div class="scroll" style="margin-top:10px">
@@ -208,7 +238,7 @@ details summary { cursor: pointer; color: var(--text-2); font-size: 14px; }
 // ------------------------------------------------------------ i18n
 const I18N = {
   en: { title: "Smart Home", subtitle: "Living room · ESP32-S3 · DHT22 · MQ-2 · IR", waiting: "Waiting for data…",
-    temp: "Temperature", hum: "Humidity", gas: "Gas / smoke", wifi: "Wi-Fi", range: "Range:", all: "All", clear: "Clear history",
+    temp: "Temperature", hum: "Humidity", gas: "Gas / smoke", wifi: "Wi-Fi", lux: "Light", luxDark: "Dark", luxDim: "Dim", luxNormal: "Indoor", luxBright: "Bright", luxNone: "No sensor (check SDA 8 / SCL 9)", range: "Range:", all: "All", clear: "Clear history",
     dashed: "· dashed = alarm threshold", irTitle: "IR receiver (VS1838B)", learn: "Learn code",
     learnHint: "Press “Learn code”, then press a remote button aimed at the receiver within 15 s. The code is saved in the ESP32's flash.",
     time: "Time", proto: "Protocol", irEmpty: "No codes yet — press a button on any remote.", settings: "Device settings",
@@ -222,9 +252,14 @@ const I18N = {
     thr: "threshold", strong: "Strong", ok: "OK", weak: "Weak", uptime: "uptime", waitingIr: "Waiting for a remote button…",
     saved: "Saved", timeout: "No code received (timed out)", sent: "Sent to device", notConn: "Not connected to broker",
     r0: "MQ-2 R0", fw: "firmware", sensorErr: "Sensor error",
-    listening: "Listening on (must match MQTT_BASE in secrets.h):" },
+    listening: "Listening on (must match MQTT_BASE in secrets.h):",
+    servoTitle: "Servo test", servoSweep: "Auto sweep",
+    savedTitle: "Learned codes", txTest: "IR blaster test (GPIO 15):", send: "Send", txSent: "IR sent", txErr: "IR send failed", clearAll: "Delete all", dev: "Device", btn: "Button", codesEmpty: "No learned codes yet.",
+    relearn: "Re-learn", rename: "Rename", del: "Delete", renamePrompt: "New name as device.button (e.g. tv.power):",
+    delConfirm: "Delete code", delAllConfirm: "Delete ALL learned codes?", servoStop: "Stop sweep",
+    servoHint: "Drag the slider or press an angle to move the servo over MQTT.", servoAt: "Servo at", servoSweeping: "sweeping" },
   vi: { title: "Nhà thông minh", subtitle: "Phòng khách · ESP32-S3 · DHT22 · MQ-2 · IR", waiting: "Đang chờ dữ liệu…",
-    temp: "Nhiệt độ", hum: "Độ ẩm", gas: "Khí gas / khói", wifi: "Wi-Fi", range: "Khoảng thời gian:", all: "Tất cả", clear: "Xoá lịch sử",
+    temp: "Nhiệt độ", hum: "Độ ẩm", gas: "Khí gas / khói", wifi: "Wi-Fi", lux: "Ánh sáng", luxDark: "Tối", luxDim: "Mờ", luxNormal: "Trong nhà", luxBright: "Sáng", luxNone: "Không thấy cảm biến (kiểm tra SDA 8 / SCL 9)", range: "Khoảng thời gian:", all: "Tất cả", clear: "Xoá lịch sử",
     dashed: "· nét đứt = ngưỡng báo động", irTitle: "Bộ thu IR (VS1838B)", learn: "Học mã",
     learnHint: "Bấm “Học mã”, rồi bấm nút trên remote hướng vào mắt thu trong 15 giây. Mã được lưu vào flash của ESP32.",
     time: "Giờ", proto: "Giao thức", irEmpty: "Chưa nhận mã nào — bấm thử một nút trên remote.", settings: "Cài đặt thiết bị",
@@ -238,7 +273,12 @@ const I18N = {
     thr: "ngưỡng", strong: "Mạnh", ok: "Ổn", weak: "Yếu", uptime: "chạy", waitingIr: "Đang chờ bấm nút remote…",
     saved: "Đã lưu", timeout: "Không nhận được mã (hết giờ)", sent: "Đã gửi tới thiết bị", notConn: "Chưa kết nối broker",
     r0: "MQ-2 R0", fw: "firmware", sensorErr: "Lỗi cảm biến",
-    listening: "Đang nghe topic (phải trùng MQTT_BASE trong secrets.h):" },
+    listening: "Đang nghe topic (phải trùng MQTT_BASE trong secrets.h):",
+    servoTitle: "Thử servo", servoSweep: "Quét tự động",
+    savedTitle: "Mã đã học", txTest: "Thử phát IR (GPIO 15):", send: "Gửi", txSent: "Đã phát IR", txErr: "Phát IR thất bại", clearAll: "Xoá tất cả", dev: "Thiết bị", btn: "Nút", codesEmpty: "Chưa có mã nào được học.",
+    relearn: "Học lại", rename: "Đổi tên", del: "Xoá", renamePrompt: "Tên mới dạng thiết_bị.nút (vd tv.power):",
+    delConfirm: "Xoá mã", delAllConfirm: "Xoá TẤT CẢ mã đã học?", servoStop: "Dừng quét",
+    servoHint: "Kéo thanh trượt hoặc bấm góc để điều khiển servo qua MQTT.", servoAt: "Servo đang ở", servoSweeping: "đang quét" },
 };
 const store = {
   get(k, d) { try { const v = localStorage.getItem("shd." + k); return v === null ? d : v; } catch { return d; } },
@@ -250,7 +290,7 @@ function applyLang() {
   document.documentElement.lang = lang;
   document.querySelectorAll("[data-i18n]").forEach(el => el.textContent = t(el.dataset.i18n));
   document.getElementById("langBtn").textContent = lang === "vi" ? "EN" : "VI";
-  render();
+  render(); renderServo(); renderCodes();
 }
 document.getElementById("langBtn").onclick = () => { lang = lang === "vi" ? "en" : "vi"; store.set("lang", lang); applyLang(); };
 
@@ -372,6 +412,8 @@ function render() {
   setVal("vGas", d.gas_ready ? d.gas_ppm : "…", "ppm");
   $("sGas").textContent = `${d.gas_mv} mV · ${t("thr")} ${d.gas_threshold}`;
   setVal("vRssi", d.rssi, "dBm");
+  setVal("vLux", d.lux != null ? (d.lux < 10 ? d.lux.toFixed(1) : Math.round(d.lux)) : null, "lux");
+  $("sLux").textContent = d.lux == null ? t("luxNone") : d.lux < 10 ? t("luxDark") : d.lux < 100 ? t("luxDim") : d.lux < 1000 ? t("luxNormal") : t("luxBright");
   const up = d.uptime_s, upStr = up >= 3600 ? `${Math.floor(up / 3600)}h ${Math.floor(up % 3600 / 60)}m` : `${Math.floor(up / 60)}m ${up % 60}s`;
   $("sRssi").textContent = `${t(d.rssi > -60 ? "strong" : d.rssi > -75 ? "ok" : "weak")} · ${t("uptime")} ${upStr}`;
 }
@@ -385,6 +427,31 @@ function renderIr() {
     `<tr><td>${fmtTime(c.t)}</td><td>${esc(c.protocol)}</td><td class="mono">${esc(c.address)}</td><td class="mono">${esc(c.command)}</td><td class="mono">${esc(c.raw)}</td></tr>`).join("")
     : `<tr><td colspan="5" class="empty">${t("irEmpty")}</td></tr>`;
 }
+function renderCodes() {
+  const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const codes = state.codes || [];
+  $("codesBody").innerHTML = codes.length ? codes.map((c, i) =>
+    `<tr><td>${esc(c.device)}</td><td>${esc(c.cmd)}</td><td>${esc(c.protocol)}</td><td class="mono">${esc(c.address)}</td><td class="mono">${esc(c.command)}</td>` +
+    `<td style="white-space:nowrap"><button data-act="send" data-i="${i}">${t("send")}</button> <button data-act="relearn" data-i="${i}">${t("relearn")}</button> <button data-act="rename" data-i="${i}">${t("rename")}</button> <button data-act="del" data-i="${i}">${t("del")}</button></td></tr>`).join("")
+    : `<tr><td colspan="6" class="empty">${t("codesEmpty")}</td></tr>`;
+}
+$("codesBody").onclick = e => {
+  const b = e.target.closest("button[data-act]"); if (!b) return;
+  const c = (state.codes || [])[+b.dataset.i]; if (!c) return;
+  if (b.dataset.act === "send") {
+    send("irSend", { key: c.key });
+  } else if (b.dataset.act === "del") {
+    if (confirm(`${t("delConfirm")} ${c.device}.${c.cmd}?`)) send("configSet", { cmd: "ir_delete", key: c.key });
+  } else if (b.dataset.act === "rename") {
+    const v = prompt(t("renamePrompt"), c.key); if (!v) return;
+    const dot = v.indexOf("."); const device = (dot > 0 ? v.slice(0, dot) : v).trim(), name = (dot > 0 ? v.slice(dot + 1) : c.cmd).trim();
+    if (device && name) send("configSet", { cmd: "ir_rename", key: c.key, device, name });
+  } else {  // relearn: prefill the learn form and start learning
+    $("learnDev").value = c.device; $("learnCmd").value = c.cmd; $("learnBtn").click();
+  }
+};
+$("txBtn").onclick = () => send("irSend", { protocol: $("txProto").value, address: $("txAddr").value.trim(), command: $("txCmd").value.trim(), bits: +$("txBits").value || 0 });
+$("clearIrBtn").onclick = () => { if (confirm(t("delAllConfirm"))) send("configSet", { cmd: "clear_ir" }); };
 function renderConfig() {
   const c = state.config; if (!c) return;
   if (document.activeElement !== $("thr")) $("thr").value = c.gas_threshold;
@@ -405,18 +472,19 @@ const cfg = {
 const topics = () => {
   const r = `${cfg.prefix}/${cfg.room}`;
   return { sensors: `${r}/sensors`, status: `${r}/status`, config: `${r}/config`, configSet: `${r}/config/set`,
-    irRx: `${r}/ir/rx`, irLearn: `${r}/ir/learn`, irLearnState: `${r}/ir/learn/state`, alert: `${cfg.prefix}/safety/alert` };
+    irRx: `${r}/ir/rx`, irLearn: `${r}/ir/learn`, irLearnState: `${r}/ir/learn/state`, irCodes: `${r}/ir/codes`, irSend: `${r}/ir/send`, irSendState: `${r}/ir/send/state`,
+    servoSet: `${r}/servo/set`, servoState: `${r}/servo/state`, alert: `${cfg.prefix}/safety/alert` };
 };
 function connect() {
   if (client) { client.end(true); client = null; }
-  state.broker = "connecting"; state.device = null; state.last = null; state.lastAt = 0; state.alert = null; render();
+  state.broker = "connecting"; state.device = null; state.last = null; state.lastAt = 0; state.alert = null; state.codes = []; renderCodes(); render();
   // A page served over https:// may only open wss:// sockets (except to localhost).
   if (location.protocol === "https:" && /^ws:\/\//i.test(cfg.url) && !/^ws:\/\/(localhost|127\.0\.0\.1)/i.test(cfg.url))
     toast(lang === "vi" ? "Trang https cần broker wss:// (ws:// sẽ bị trình duyệt chặn)" : "An https page needs a wss:// broker (ws:// is blocked)");
   const T = topics();
   client = mqtt.connect(cfg.url, { clientId: "dash-" + Math.random().toString(16).slice(2, 10), clean: true,
     username: cfg.user || undefined, password: cfg.pass || undefined, reconnectPeriod: 3000, connectTimeout: 8000 });
-  client.on("connect", () => { state.broker = "on"; render(); client.subscribe(Object.values(T).filter(x => x !== T.configSet && x !== T.irLearn), { qos: 1 }); });
+  client.on("connect", () => { state.broker = "on"; render(); client.subscribe(Object.values(T).filter(x => x !== T.configSet && x !== T.irLearn && x !== T.servoSet && x !== T.irSend), { qos: 1 }); });
   client.on("reconnect", () => { state.broker = "connecting"; render(); });
   client.on("close", () => { if (state.broker !== "connecting") { state.broker = "off"; render(); } });
   client.on("error", e => console.warn("mqtt error", e));
@@ -434,6 +502,9 @@ function connect() {
       state.config = d; renderConfig(); updateCharts();
       $("simBadge").hidden = d.fw !== "simulator";
     }
+    else if (topic === T.irSendState) { toast(d.state === "sent" ? `${t("txSent")}: ${d.key || d.protocol + " " + d.address + "/" + d.command}` : `${t("txErr")}: ${d.error || ""}`); }
+    else if (topic === T.irCodes) { state.codes = d.codes || []; renderCodes(); }
+    else if (topic === T.servoState) { state.servo = d; renderServo(); }
     else if (topic === T.irRx) { state.ir.unshift({ t: Date.now(), ...d }); state.ir = state.ir.slice(0, 50); renderIr(); }
     else if (topic === T.irLearnState) {
       const el = $("learnState");
@@ -452,6 +523,27 @@ $("saveCfg").onclick = () => {
   if (thr) o.gas_threshold = thr; if (iv) o.interval_ms = iv * 1000; send("configSet", o);
 };
 $("calBtn").onclick = () => send("configSet", { cmd: "calibrate" });
+
+// servo test
+function renderServo() {
+  const s = state.servo; if (!s) return;
+  if (document.activeElement !== $("servoSlider")) $("servoSlider").value = s.angle;
+  $("servoVal").textContent = `${s.angle}°`;
+  $("servoPin").textContent = s.pin != null ? `GPIO ${s.pin}` : "";
+  $("servoSweepBtn").textContent = t(s.sweep ? "servoStop" : "servoSweep");
+  $("servoInfo").textContent = s.sweep ? `${t("servoAt")} ${s.angle}° (${t("servoSweeping")})` : `${t("servoAt")} ${s.angle}°`;
+}
+let servoSendT = 0;
+$("servoSlider").oninput = e => {
+  $("servoVal").textContent = `${e.target.value}°`;
+  const now = Date.now();
+  if (now - servoSendT < 80) return;  // throttle while dragging
+  servoSendT = now;
+  if (client?.connected) client.publish(topics().servoSet, JSON.stringify({ angle: +e.target.value }), { qos: 0 });
+};
+$("servoSlider").onchange = e => send("servoSet", { angle: +e.target.value });  // final value on release
+document.querySelectorAll("button[data-angle]").forEach(b => b.onclick = () => send("servoSet", { angle: +b.dataset.angle }));
+$("servoSweepBtn").onclick = () => send("servoSet", { sweep: !(state.servo?.sweep) });
 $("learnBtn").onclick = () => {
   if (send("irLearn", { device: $("learnDev").value.trim() || "dev", cmd: $("learnCmd").value.trim() || "cmd" })) {
     $("learnBtn").disabled = true; setTimeout(() => $("learnBtn").disabled = false, 16000);
