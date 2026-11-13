@@ -79,6 +79,34 @@ pip install paho-mqtt
 python tools/simulate.py --prefix nhom5-iot/home --gas-spike
 ```
 
+## 4a. Local app (no deploy)
+
+Double-click `start-dashboard.bat` → opens `http://localhost:8000` (Python's built-in server, this PC only).
+In Chrome/Edge click the **Install** icon in the address bar → the dashboard gets its own window,
+Start-menu entry and desktop icon. After that the app opens even without the .bat running
+(the service worker caches it); run the .bat again only after you change `index.html`.
+Always use port 8000: the installed app is tied to `http://localhost:8000`.
+Works with Mosquitto on the same laptop (`ws://localhost:9001`) as well as HiveMQ.
+
+## 4. Web app (PWA) on GitHub Pages
+
+The dashboard is an installable web app (`manifest.webmanifest`, `sw.js`, `icons/`).
+`.github/workflows/pages.yml` publishes `dashboard/` on every push to `main`.
+
+1. One time: GitHub repo → **Settings → Pages → Source = GitHub Actions**.
+2. `git push` → after ~1 min it's live at **https://gorelace.github.io/iot-smarthome/**
+   (link with your prefix: `https://gorelace.github.io/iot-smarthome/?prefix=nhom5-iot/home`).
+3. Install on a phone: Android Chrome → ⋮ → *Install app*; iPhone Safari → Share → *Add to Home Screen*.
+   On a PC, Chrome/Edge show an install icon in the address bar.
+
+Notes:
+- The page is https, so the broker must be **wss://** (HiveMQ public or HiveMQ Cloud).
+  `ws://<laptop-ip>:9001` (local Mosquitto) is blocked by the browser on the hosted page; for that,
+  serve it locally instead: `cd dashboard && python -m http.server 8000` → `http://localhost:8000`.
+- After changing `index.html`, bump `VERSION` in `sw.js` so installed apps fetch the new version.
+- Anyone with the link can open the page; with the public broker they can also send commands.
+  For a real deployment use HiveMQ Cloud with a username/password.
+
 ## MQTT topics
 
 `<base>` = `MQTT_BASE` (default `home`), room = `livingroom`.

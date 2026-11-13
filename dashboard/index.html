@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Smart Home Dashboard</title>
+<!-- PWA: installable web app -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2a78d6">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Smart Home">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
@@ -401,6 +410,9 @@ const topics = () => {
 function connect() {
   if (client) { client.end(true); client = null; }
   state.broker = "connecting"; state.device = null; state.last = null; state.lastAt = 0; state.alert = null; render();
+  // A page served over https:// may only open wss:// sockets (except to localhost).
+  if (location.protocol === "https:" && /^ws:\/\//i.test(cfg.url) && !/^ws:\/\/(localhost|127\.0\.0\.1)/i.test(cfg.url))
+    toast(lang === "vi" ? "Trang https cần broker wss:// (ws:// sẽ bị trình duyệt chặn)" : "An https page needs a wss:// broker (ws:// is blocked)");
   const T = topics();
   client = mqtt.connect(cfg.url, { clientId: "dash-" + Math.random().toString(16).slice(2, 10), clean: true,
     username: cfg.user || undefined, password: cfg.pass || undefined, reconnectPeriod: 3000, connectTimeout: 8000 });
@@ -465,6 +477,10 @@ for (const k of ["url", "prefix", "room"]) if (qp.get(k)) cfg[k] = qp.get(k);
 
 const savedTheme = store.get("theme", null); if (savedTheme) setTheme(savedTheme);
 fillForm(); applyLang(); connect();
+
+// PWA: register the service worker (works on https:// and localhost, skipped when opened as a file)
+if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol))
+  navigator.serviceWorker.register("sw.js").catch(e => console.warn("SW register failed", e));
 </script>
 </body>
 </html>
