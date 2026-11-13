@@ -40,7 +40,8 @@ c.will_set(T["status"], "offline", qos=1, retain=True)
 
 def pub_config():
     c.publish(T["config"], json.dumps({"gas_threshold": threshold, "interval_ms": interval_ms, "mq2_r0_kohm": 3.21,
-                                       "pins": {"ir_rx": 5, "mq2": 6, "dht22": 7}, "fw": "simulator", "ip": "sim"}),
+                                       "pins": {"ir_rx": 5, "mq2": 6, "dht22": 7, "mmwave_rx": 18, "mmwave_tx": 17},
+                                       "mmwave_sensor": "LD2410C", "fw": "simulator", "ip": "sim"}),
               qos=1, retain=True)
 
 
@@ -94,6 +95,16 @@ try:
             d.update(gas_ppm=round(ppm), gas_ratio=round(9.83 * (180 / max(ppm, 1)) ** 0.46, 2))
         else:
             d["warmup_s"] = int(10 - el)
+        # LD2410C: someone walks in and out every ~70 s, distance drifts 20-160 cm
+        present = math.sin(el / 70) > -0.35
+        moving = present and math.sin(el / 12) > -0.2
+        d["mmwave_ok"] = True
+        d["presence"] = present
+        d["presence_moving"] = present and moving
+        d["presence_stationary"] = present and not moving
+        if present:
+            d["presence_dist"] = round(abs(90 + 70 * math.sin(el / 30) + random.uniform(-5, 5)))
+            d["presence_energy"] = random.randint(20, 90)
         c.publish(T["sensors"], json.dumps(d))
         if random.random() < 0.15:
             cmd = random.choice([0x45, 0x46, 0x47, 0x44])
@@ -104,7 +115,8 @@ try:
             c.publish(T["ir_rx"], json.dumps(code))
             c.publish(T["learn_state"], json.dumps({"state": "saved", "device": learning[0], "cmd": learning[1], "code": code}))
             learning = None
-        print(f"-> T={d['temp']} H={d['hum']} ppm={d.get('gas_ppm', '-')} alarm={alarm}")
+        print(f"-> T={d['temp']} H={d['hum']} ppm={d.get('gas_ppm', '-')} alarm={alarm} "
+              f"presence={'yes' if present else 'no'}")
         time.sleep(interval_ms / 1000)
 except KeyboardInterrupt:
     c.publish(T["status"], "offline", qos=1, retain=True).wait_for_publish(2)

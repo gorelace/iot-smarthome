@@ -3,8 +3,7 @@
 Edge node + web dashboard for the 4-layer smart-home design in the slides:
 sensors → ESP32-S3 (edge rules) → MQTT broker → dashboard.
 
-Current hardware: **ESP32-S3 + DHT22 + MQ-2 + VS1838B IR receiver**.
-Relay, servo, buzzer, mmWave, BH1750 and IR TX are planned, not wired yet.
+Current hardware: **ESP32-S3 + DHT22 + MQ-2 + BH1750 + LD2410C mmWave + VS1838B IR receiver + IR blaster + servo**. Relay and buzzer are planned, not wired yet.
 
 ```
 firmware/    PlatformIO project for the ESP32-S3
@@ -23,6 +22,13 @@ tools/       simulate.py: fake ESP32 for testing the dashboard without hardware
 | | VCC / GND | 5V / GND |
 | DHT22 | DATA | **GPIO 7** (10k pull-up to 3V3 if it's a bare sensor, modules have one) |
 | | VCC / GND | 3V3 / GND |
+| LD2410C mmWave | VCC / GND | 5V / GND |
+| | TX | **GPIO 18** (ESP32 RX, UART1) |
+| | RX | **GPIO 17** (ESP32 TX, UART1 — only needed to configure the module) |
+
+> **LD2410C:** the module streams target frames at **256000 baud** (factory default) and its
+> UART is 3.3 V logic, so it connects directly. ESP32 RX (18) ← module TX, ESP32 TX (17) → module RX.
+> Power it from 5 V; the TX pin still only swings to 3.3 V.
 
 > **MQ-2 voltage:** powered from 5 V, its AO pin can go above 3.3 V and damage the ESP32-S3.
 > Use a divider: `AO → 10k → GPIO6 → 20k → GND`. The firmware assumes this (`MQ2_DIVIDER 1.5` in
@@ -48,7 +54,7 @@ Serial output looks like:
 ```
 [WiFi] connected, IP 192.168.1.50, RSSI -58
 [MQTT] connecting to broker.hivemq.com:1883 as esp32s3-a1b2c3 ... ok
-[TELE] T=29.8C H=68.2% gas=412mV (warming) 0ppm rssi=-58
+[TELE] T=29.8C H=68.2% gas=412mV (warming) 0ppm pres=clear rssi=-58
 [IR] NEC addr=0x0 cmd=0x45 raw=0xBA45FF00 bits=32
 ```
 
@@ -70,7 +76,7 @@ Open `dashboard/index.html` in a browser (double-click works). Open **Kết nố
 connection**, choose the preset, set **Topic prefix** = your `MQTT_BASE`, press Connect.
 Settings are remembered. You can also pass them in the URL: `index.html?prefix=nhom5-iot/home`.
 
-Shows: gas-safety banner, temperature / humidity / gas / Wi-Fi tiles, live charts (5 min / 15 min / 1 h),
+Shows: gas-safety banner, temperature / humidity / gas / presence / light / Wi-Fi tiles, live charts (5 min / 15 min / 1 h),
 IR codes received, IR "learn" button, gas threshold, publish interval, MQ-2 calibration. VI/EN and light/dark toggles.
 
 No hardware yet? Run the simulator and point the dashboard at the same broker/prefix:
@@ -113,7 +119,7 @@ Notes:
 
 | Topic | Direction | Payload |
 |---|---|---|
-| `<base>/livingroom/sensors` | ESP32 → | every 3 s: `{"temp":29.8,"hum":68.2,"heat_index":33.1,"gas_mv":412,"gas_ppm":180,"gas_ready":true,"gas_alarm":false,"gas_threshold":1000,"rssi":-58,"uptime_s":120}` |
+| `<base>/livingroom/sensors` | ESP32 → | every 3 s: `{"temp":29.8,"hum":68.2,"heat_index":33.1,"lux":420,"gas_mv":412,"gas_ppm":180,"gas_ready":true,"gas_alarm":false,"gas_threshold":1000,"presence":true,"presence_moving":false,"presence_stationary":true,"presence_dist":81,"presence_energy":59,"mmwave_ok":true,"rssi":-58,"uptime_s":120}` |
 | `<base>/livingroom/status` | ESP32 → | `online` / `offline` (retained; `offline` is the Last Will) |
 | `<base>/livingroom/config` | ESP32 → | current settings (retained) |
 | `<base>/livingroom/config/set` | → ESP32 | `{"gas_threshold":1200}`, `{"interval_ms":5000}`, `{"cmd":"calibrate"}`, `{"cmd":"reboot"}`, `{"cmd":"clear_ir"}` |
@@ -133,8 +139,19 @@ Watch everything from a terminal: `mosquitto_sub -h broker.hivemq.com -t "home/#
 - The alarm logic runs on the ESP32 itself (edge-first), so it still fires if Wi-Fi or the broker is down.
   Add a buzzer by setting `PIN_BUZZER` in `config.h`.
 
+## LD2410C notes
+
+- `presence` is true when the radar sees a moving and/or stationary target; `presence_dist` is the
+  detection distance in cm, `presence_moving` / `presence_stationary` say which kind of target it is.
+- The firmware reads the frames the module streams by itself (header `F4 F3 F2 F1`), so nothing has to be
+  configured first. `mmwave_ok` turns false when no frame arrived for 5 s (wiring, 5 V power or wrong baud).
+- Distances are the module's own measurements (gate resolution 0.75 m by default, interpolated by the
+  module), so treat them as room-scale, not precise.
+- Engineering mode (per-gate energy) is off by default; if you enable it in the vendor app the firmware
+  still reads the target fields (the gate energies are ignored).
+
 ## Next steps (from the slides)
 
-- IR TX (IR LED + MOSFET) → subscribe `ir/set` and replay the learned codes from flash.
-- Relay / servo / buzzer for the gas safety chain; LD2410C + BH1750 for adaptive lighting.
+- Relay / buzzer for the gas safety chain → call them from `setAlarm()`.
+- Adaptive lighting: LD2410C presence + BH1750 lux → relay or lamp (both already publish telemetry).
 - Telegram alert and Home Assistant / Node-RED (they can subscribe to the same topics).

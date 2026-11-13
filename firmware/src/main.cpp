@@ -1,7 +1,7 @@
-// ESP32-S3 edge node: DHT22 + MQ-2 + VS1838B IR receiver -> MQTT
+// ESP32-S3 edge node: DHT22 + MQ-2 + VS1838B IR receiver + BH1750 + LD2410C -> MQTT
 //
 // Publishes (all under <MQTT_BASE>, default "home"):
-//   home/livingroom/sensors        telemetry JSON every 3 s
+//   home/livingroom/sensors        telemetry JSON every 3 s (incl. presence from the LD2410C)
 //   home/livingroom/status         "online" / "offline" (retained, LWT)
 //   home/livingroom/config         current settings (retained)
 //   home/livingroom/ir/rx          every IR code the receiver decodes
@@ -80,6 +80,14 @@ float lux = NAN;
 uint32_t lastLux = 0, lastLuxProbe = 0;
 String i2cFound = "";       // result of the last I2C bus scan, shown in the retained config
 
+// mmWave presence sensor (LD2410C on UART1; it streams basic target frames ~10x/s)
+HardwareSerial mmwave(1);
+bool mwPresent = false, mwMoving = false, mwStationary = false;
+uint16_t mwMoveDist = 0, mwStatDist = 0, mwDetectDist = 0;   // cm
+uint8_t mwMoveEnergy = 0, mwStatEnergy = 0;                  // 0-100
+uint32_t mwLastFrame = 0;
+bool mmwaveOk();  // defined below; used by publishConfig()
+
 // servo (test): current angle and optional non-blocking sweep
 int servoAngle = 90;
 bool servoSweep = false;
@@ -145,7 +153,10 @@ void publishConfig() {
   d["pins"]["servo"] = PIN_SERVO;
   d["pins"]["sda"] = PIN_I2C_SDA;
   d["pins"]["scl"] = PIN_I2C_SCL;
+  d["pins"]["mmwave_rx"] = PIN_MMWAVE_RX;
+  d["pins"]["mmwave_tx"] = PIN_MMWAVE_TX;
   d["lux_sensor"] = luxAddr ? "BH1750" : "none";
+  d["mmwave_sensor"] = mmwaveOk() ? "LD2410C" : "none";
   d["i2c_devices"] = i2cFound.length() ? i2cFound : "none";
   d["fw"] = __DATE__ " " __TIME__;
   d["ip"] = WiFi.localIP().toString();
@@ -246,12 +257,27 @@ void publishTelemetry() {
   }
   d["gas_alarm"] = gasAlarm;
   d["gas_threshold"] = gasThreshold;
+  bool mwOk = mmwaveOk();
+  d["presence"] = mwOk && mwPresent;
+  d["presence_moving"] = mwOk && mwMoving;
+  d["presence_stationary"] = mwOk && mwStationary;
+  if (mwOk && mwPresent) {
+    d["presence_dist"] = mwDetectDist;
+    d["presence_energy"] = max(mwMoveEnergy, mwStatEnergy);
+  }
+  d["mmwave_ok"] = mwOk;
   d["rssi"] = WiFi.RSSI();
   d["uptime_s"] = millis() / 1000;
   d["heap"] = ESP.getFreeHeap();
 
-  Serial.printf("[TELE] T=%.1fC H=%.1f%% gas=%.0fmV %s%.0fppm rssi=%d\n", tempC, humidity, gasMv,
-                gasReady ? "" : "(warming) ", gasPpm, WiFi.RSSI());
+  char pres[32];
+  if (!mwOk) snprintf(pres, sizeof pres, "n/a");
+  else if (mwPresent)
+    snprintf(pres, sizeof pres, "%s %ucm", mwMoving && mwStationary ? "move+still" : mwMoving ? "moving" : "still",
+             (unsigned)mwDetectDist);
+  else snprintf(pres, sizeof pres, "clear");
+  Serial.printf("[TELE] T=%.1fC H=%.1f%% gas=%.0fmV %s%.0fppm pres=%s rssi=%d\n", tempC, humidity, gasMv,
+                gasReady ? "" : "(warming) ", gasPpm, pres, WiFi.RSSI());
   publishJson(T_SENSORS, d);
 }
 
@@ -302,6 +328,51 @@ void readLux() {
     Serial.println("[LUX] read failed, will re-probe");
     luxAddr = 0;
     lux = NAN;
+  }
+}
+
+// ---------------------------------------------------------------- LD2410C mmWave presence
+// The module streams frames on UART1 at 256000 baud (factory default):
+//   F4 F3 F2 F1 | len(2, LE) | 02 AA <target data> 55 00 | F8 F7 F6 F5
+// Target data: state (bit0 moving, bit1 stationary), moving dist(2), moving energy,
+//              stationary dist(2), stationary energy, detection dist(2)  -- distances in cm.
+bool mmwaveOk() {
+  return mwLastFrame && millis() - mwLastFrame < MMWAVE_TIMEOUT_MS;
+}
+
+void parseMmwaveFrame(const uint8_t *d, uint16_t len) {
+  // 0x02 = basic target data, 0x01 = engineering mode (same target fields, extra gate energies)
+  if (len < 13 || d[1] != 0xAA || (d[0] != 0x01 && d[0] != 0x02)) return;
+  uint8_t st = d[2];
+  mwMoving = st & 0x01;
+  mwStationary = st & 0x02;
+  mwPresent = (st & 0x03) != 0;  // 0x04-0x06 = noise-detection progress, not a person
+  mwMoveDist = d[3] | (d[4] << 8);
+  mwMoveEnergy = d[5];
+  mwStatDist = d[6] | (d[7] << 8);
+  mwStatEnergy = d[8];
+  mwDetectDist = d[9] | (d[10] << 8);
+  if (!mwDetectDist) mwDetectDist = mwMoving ? mwMoveDist : mwStatDist;  // some firmwares leave it 0
+  mwLastFrame = millis() ? millis() : 1;
+}
+
+// Non-blocking frame decoder: keeps whatever arrived, resyncs on the header, drops bad frames.
+void mmwaveLoop() {
+  static uint8_t buf[64];
+  static size_t len = 0;
+  while (mmwave.available()) {
+    if (len < sizeof buf) buf[len++] = (uint8_t)mmwave.read();
+    while (len >= 4 && !(buf[0] == 0xF4 && buf[1] == 0xF3 && buf[2] == 0xF2 && buf[3] == 0xF1))
+      memmove(buf, buf + 1, --len);  // skip noise until the next frame header
+    if (len < 6) continue;
+    uint16_t dlen = buf[4] | (buf[5] << 8);
+    size_t total = 6 + dlen + 4;  // header(4) + length(2) + data + end(4)
+    if (dlen > sizeof buf - 10) { len = 0; continue; }  // impossible length: drop and resync
+    if (len < total) continue;
+    if (buf[total - 4] == 0xF8 && buf[total - 3] == 0xF7 && buf[total - 2] == 0xF6 && buf[total - 1] == 0xF5)
+      parseMmwaveFrame(buf + 6, dlen);
+    memmove(buf, buf + total, len - total);
+    len -= total;
   }
 }
 
@@ -611,6 +682,8 @@ void setup() {
   Wire.setTimeOut(50);
   scanI2c();
   initBh1750();
+  mmwave.setRxBufferSize(512);
+  mmwave.begin(MMWAVE_BAUD, SERIAL_8N1, PIN_MMWAVE_RX, PIN_MMWAVE_TX);  // LD2410C streams frames on its own
   ledcSetup(SERVO_LEDC_CH, 50, 14);  // 50 Hz, 14-bit (max on ESP32-S3)
   ledcAttachPin(PIN_SERVO, SERVO_LEDC_CH);
   servoWrite(servoAngle);
@@ -698,6 +771,7 @@ void loop() {
   if (now - lastPublish >= publishMs) { lastPublish = now; publishTelemetry(); }
 
   handleIr();
+  mmwaveLoop();
   checkLearnTimeout();
   servoLoop();
   delay(5);

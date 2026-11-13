@@ -21,7 +21,7 @@
   --bg: #f4f4f2; --surface: #fcfcfb; --border: #e3e2de;
   --text: #0b0b0b; --text-2: #52514e; --muted: #8a8984;
   --grid: #ecebe7;
-  --s-temp: #eb6834; --s-hum: #2a78d6; --s-gas: #1baf7a;
+  --s-temp: #eb6834; --s-hum: #2a78d6; --s-gas: #1baf7a; --s-pres: #7c5cd6;
   --good: #0ca30c; --warning: #fab219; --critical: #d03b3b;
   --good-bg: #e8f6e8; --crit-bg: #fbe9e9; --warn-bg: #fff4dc;
   --accent: #2a78d6;
@@ -31,7 +31,7 @@
     color-scheme: dark;
     --bg: #111110; --surface: #1a1a19; --border: #2c2c2a;
     --text: #f0efec; --text-2: #c3c2b7; --muted: #8d8c86; --grid: #262624;
-    --s-temp: #d95926; --s-hum: #3987e5; --s-gas: #199e70;
+    --s-temp: #d95926; --s-hum: #3987e5; --s-gas: #199e70; --s-pres: #9b7ff0;
     --good-bg: #13261a; --crit-bg: #3a1616; --warn-bg: #33270d;
     --accent: #3987e5;
   }
@@ -40,7 +40,7 @@
   color-scheme: dark;
   --bg: #111110; --surface: #1a1a19; --border: #2c2c2a;
   --text: #f0efec; --text-2: #c3c2b7; --muted: #8d8c86; --grid: #262624;
-  --s-temp: #d95926; --s-hum: #3987e5; --s-gas: #199e70;
+  --s-temp: #d95926; --s-hum: #3987e5; --s-gas: #199e70; --s-pres: #9b7ff0;
   --good-bg: #13261a; --crit-bg: #3a1616; --warn-bg: #33270d;
   --accent: #3987e5;
 }
@@ -136,6 +136,8 @@ details summary { cursor: pointer; color: var(--text-2); font-size: 14px; }
       <div class="value" id="vHum">—<small>%</small></div><div class="sub" id="sHum">&nbsp;</div></div>
     <div class="card tile"><div class="label"><span class="swatch" style="background:var(--s-gas)"></span><span data-i18n="gas">Khí gas / khói</span></div>
       <div class="value" id="vGas">—<small>ppm</small></div><div class="sub" id="sGas">&nbsp;</div></div>
+    <div class="card tile"><div class="label"><span class="swatch" style="background:var(--s-pres)"></span><span data-i18n="presence">Hiện diện</span></div>
+      <div class="value" id="vPres">—</div><div class="sub" id="sPres">&nbsp;</div></div>
     <div class="card tile"><div class="label"><span class="swatch" style="background:#d9a400"></span><span data-i18n="lux">Ánh sáng</span></div>
       <div class="value" id="vLux">—<small>lux</small></div><div class="sub" id="sLux">&nbsp;</div></div>
     <div class="card tile"><div class="label" data-i18n="wifi">Wi-Fi</div>
@@ -237,8 +239,8 @@ details summary { cursor: pointer; color: var(--text-2); font-size: 14px; }
 <script>
 // ------------------------------------------------------------ i18n
 const I18N = {
-  en: { title: "Smart Home", subtitle: "Living room · ESP32-S3 · DHT22 · MQ-2 · IR", waiting: "Waiting for data…",
-    temp: "Temperature", hum: "Humidity", gas: "Gas / smoke", wifi: "Wi-Fi", lux: "Light", luxDark: "Dark", luxDim: "Dim", luxNormal: "Indoor", luxBright: "Bright", luxNone: "No sensor (check SDA 8 / SCL 9)", range: "Range:", all: "All", clear: "Clear history",
+  en: { title: "Smart Home", subtitle: "Living room · ESP32-S3 · DHT22 · MQ-2 · IR · LD2410C", waiting: "Waiting for data…",
+    temp: "Temperature", hum: "Humidity", gas: "Gas / smoke", presence: "Presence", presenceOn: "Yes", presenceOff: "No", presenceMoving: "moving", presenceStill: "still", presenceNone: "No motion detected", presenceNoSensor: "No sensor (check GPIO 17/18)", wifi: "Wi-Fi", lux: "Light", luxDark: "Dark", luxDim: "Dim", luxNormal: "Indoor", luxBright: "Bright", luxNone: "No sensor (check SDA 8 / SCL 9)", range: "Range:", all: "All", clear: "Clear history",
     dashed: "· dashed = alarm threshold", irTitle: "IR receiver (VS1838B)", learn: "Learn code",
     learnHint: "Press “Learn code”, then press a remote button aimed at the receiver within 15 s. The code is saved in the ESP32's flash.",
     time: "Time", proto: "Protocol", irEmpty: "No codes yet — press a button on any remote.", settings: "Device settings",
@@ -258,8 +260,8 @@ const I18N = {
     relearn: "Re-learn", rename: "Rename", del: "Delete", renamePrompt: "New name as device.button (e.g. tv.power):",
     delConfirm: "Delete code", delAllConfirm: "Delete ALL learned codes?", servoStop: "Stop sweep",
     servoHint: "Drag the slider or press an angle to move the servo over MQTT.", servoAt: "Servo at", servoSweeping: "sweeping" },
-  vi: { title: "Nhà thông minh", subtitle: "Phòng khách · ESP32-S3 · DHT22 · MQ-2 · IR", waiting: "Đang chờ dữ liệu…",
-    temp: "Nhiệt độ", hum: "Độ ẩm", gas: "Khí gas / khói", wifi: "Wi-Fi", lux: "Ánh sáng", luxDark: "Tối", luxDim: "Mờ", luxNormal: "Trong nhà", luxBright: "Sáng", luxNone: "Không thấy cảm biến (kiểm tra SDA 8 / SCL 9)", range: "Khoảng thời gian:", all: "Tất cả", clear: "Xoá lịch sử",
+  vi: { title: "Nhà thông minh", subtitle: "Phòng khách · ESP32-S3 · DHT22 · MQ-2 · IR · LD2410C", waiting: "Đang chờ dữ liệu…",
+    temp: "Nhiệt độ", hum: "Độ ẩm", gas: "Khí gas / khói", presence: "Hiện diện", presenceOn: "Có", presenceOff: "Không", presenceMoving: "đang di chuyển", presenceStill: "đứng yên", presenceNone: "Không phát hiện chuyển động", presenceNoSensor: "Không thấy cảm biến (kiểm tra GPIO 17/18)", wifi: "Wi-Fi", lux: "Ánh sáng", luxDark: "Tối", luxDim: "Mờ", luxNormal: "Trong nhà", luxBright: "Sáng", luxNone: "Không thấy cảm biến (kiểm tra SDA 8 / SCL 9)", range: "Khoảng thời gian:", all: "Tất cả", clear: "Xoá lịch sử",
     dashed: "· nét đứt = ngưỡng báo động", irTitle: "Bộ thu IR (VS1838B)", learn: "Học mã",
     learnHint: "Bấm “Học mã”, rồi bấm nút trên remote hướng vào mắt thu trong 15 giây. Mã được lưu vào flash của ESP32.",
     time: "Giờ", proto: "Giao thức", irEmpty: "Chưa nhận mã nào — bấm thử một nút trên remote.", settings: "Cài đặt thiết bị",
@@ -414,6 +416,16 @@ function render() {
   setVal("vRssi", d.rssi, "dBm");
   setVal("vLux", d.lux != null ? (d.lux < 10 ? d.lux.toFixed(1) : Math.round(d.lux)) : null, "lux");
   $("sLux").textContent = d.lux == null ? t("luxNone") : d.lux < 10 ? t("luxDark") : d.lux < 100 ? t("luxDim") : d.lux < 1000 ? t("luxNormal") : t("luxBright");
+  // mmWave presence (LD2410C)
+  if (!d.mmwave_ok) {
+    $("vPres").innerHTML = "—";
+    $("sPres").textContent = t("presenceNoSensor");
+  } else {
+    $("vPres").innerHTML = d.presence ? t("presenceOn") : t("presenceOff");
+    $("sPres").textContent = !d.presence ? t("presenceNone")
+      : `${d.presence_dist ?? "?"} cm · ${d.presence_moving && d.presence_stationary ? `${t("presenceMoving")} + ${t("presenceStill")}`
+        : d.presence_moving ? t("presenceMoving") : t("presenceStill")}`;
+  }
   const up = d.uptime_s, upStr = up >= 3600 ? `${Math.floor(up / 3600)}h ${Math.floor(up % 3600 / 60)}m` : `${Math.floor(up / 60)}m ${up % 60}s`;
   $("sRssi").textContent = `${t(d.rssi > -60 ? "strong" : d.rssi > -75 ? "ok" : "weak")} · ${t("uptime")} ${upStr}`;
 }

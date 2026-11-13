@@ -8,6 +8,8 @@
 #define PIN_DHT22   7   // DHT22 data (needs a 4.7k-10k pull-up; most modules have one)
 #define PIN_I2C_SDA 9   // light sensor (BH1750) SDA
 #define PIN_I2C_SCL 8   // light sensor (BH1750) SCL
+#define PIN_MMWAVE_RX 18  // LD2410C TX -> ESP32 RX (UART1)
+#define PIN_MMWAVE_TX 17  // ESP32 TX -> LD2410C RX (UART1; only needed to configure the module)
 #define PIN_BUZZER -1   // not wired yet; set a GPIO to enable the local gas siren
 #define PIN_SERVO   4   // servo signal (orange/yellow wire). Power the servo from 5V, NOT the 3V3 pin; share GND.
 #define SERVO_MIN_US  500    // pulse width at 0 deg   (SG90: 500, MG90S: 500)
@@ -24,6 +26,11 @@
 #define MQ2_WARMUP_MS       60000UL   // heater warm-up before readings are trusted
 #define IR_LEARN_TIMEOUT_MS 15000UL
 #define IR_DEBOUNCE_MS        300UL   // identical IR code within this gap of the previous frame = same button press
+
+// ---------------- LD2410C mmWave radar ----------------
+// The module reports continuously at 256000 baud (factory default) in normal mode.
+#define MMWAVE_BAUD        256000UL
+#define MMWAVE_TIMEOUT_MS    5000UL   // no frame for this long = sensor missing / wrong wiring
 
 // ---------------- DHT22 calibration ----------------
 // Added to every reading. Compare against a trusted thermometer placed next to the sensor

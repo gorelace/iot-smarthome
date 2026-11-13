@@ -1,7 +1,7 @@
 // Service worker: caches the app shell + CDN libs so the dashboard opens instantly
 // and still loads offline. Live data always comes from MQTT (WebSocket), which is never cached.
 // Bump VERSION whenever you change index.html so phones pick up the new version.
-const VERSION = "shd-v1";
+const VERSION = "shd-v2";
 const SHELL = [
   "./",
   "./index.html",
