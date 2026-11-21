@@ -1,7 +1,5 @@
 # IoT Smart Home Automation (ESP32-S3 · MQTT · IR)
 
-> Giving the kit to someone else? Start with [HANDOVER.md](HANDOVER.md) — power, Wi-Fi, dashboard and troubleshooting in one page.
-
 Edge node + web dashboard for the 4-layer smart-home design in the slides:
 sensors → ESP32-S3 (edge rules) → MQTT broker → dashboard.
 
@@ -13,6 +11,78 @@ dashboard/   index.html: single-file web dashboard (MQTT over WebSockets)
 broker/      mosquitto.conf for a local broker
 tools/       simulate.py: fake ESP32 for testing the dashboard without hardware
 ```
+
+## Running the kit
+
+Everything is already flashed and wired — power it up and open the dashboard. You only need a PC
+for the two things below: changing the Wi-Fi credentials, and looking at serial logs while flashing.
+
+### 1. Power it on
+
+The 5 V power board feeds the ESP32-S3 and the 5 V sensors (MQ-2, LD2410C, servo). Turn it on and
+the node boots in ~3 s.
+
+- The RGB status LED stays **off** until the radar sees someone, then turns **white**.
+- A gas alarm turns it **red**.
+- USB-C into a PC is **not needed for normal use** — it is the data link for flashing and logs.
+  If you plug it in while the 5 V board is on, you have two 5 V sources in parallel; prefer one.
+- Powering the board from USB-C alone also works: put the sensors' 5 V on the board's `5V` pin
+  (a 2 A port is comfortable, because Wi-Fi bursts draw ~350–500 mA).
+
+### 2. Open the dashboard
+
+**https://gorelace.github.io/iot-smarthome/?prefix=iot-smarthome/home**
+
+It runs on a phone or a laptop, needs internet, and can be installed as an app (Chrome/Edge:
+install icon in the address bar; iPhone: Share → Add to Home Screen). In **Settings** the
+**Topic prefix** must be `iot-smarthome/home` — it is set by the `?prefix=` link above and then
+remembered.
+
+### 3. Change the Wi-Fi credentials
+
+The SSID and password are compiled into the firmware, so a different network needs one rebuild.
+Only a 2.4 GHz network works (the ESP32-S3 cannot see 5 GHz).
+
+1. Install PlatformIO: `pip install platformio` (or the PlatformIO IDE extension in VS Code).
+2. Make the secrets file and edit it:
+   ```bash
+   cd firmware
+   cp include/secrets.example.h include/secrets.h
+   ```
+   Set `WIFI_SSID` and `WIFI_PASS`. Keep `MQTT_BASE` as `iot-smarthome/home` (or change it
+   *and* the dashboard's Topic prefix to match).
+3. Connect the USB-C cable to the port labelled **USB** (the native port, no driver needed on
+   Windows 10/11 or Linux). A COM port appears — on this machine it was `COM3`.
+4. Flash:
+   ```bash
+   pio run -e esp32s3-usb -t upload            # native "USB" port
+   pio run -e esp32s3 -t upload                # "UART/COM" port instead
+   ```
+   If it hangs on "Connecting…", hold **BOOT**, tap **RST**, release **BOOT**.
+5. **Press RST once** after the upload. On the native USB port the toolchain leaves the chip in
+   ROM download mode; the RST press is what actually starts the firmware. Not a defect.
+6. Watch it boot if you want serial logs: `pio device monitor` (115200 baud). You should see
+   `[WiFi] connected, IP …` then `[MQTT] … ok`.
+
+### 4. Start-up check (about a minute)
+
+1. Dashboard shows **ESP32 online** within ~10 s.
+2. Wave at the radar (≤ 4 m): LED turns white, the presence tile shows the distance.
+3. Temperature/humidity appear in ~3 s; gas needs a **60 s warm-up** before ppm is trusted.
+4. Clean air should read a few ppm. If it reads high, run 5–10 min in clean air and press
+   **Calibrate MQ-2** in Settings (the calibration value survives reboots).
+
+### 5. If something is not working
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| PWR LED on, but never appears online, no serial output | chip parked in ROM download mode after flashing | press **RST** once |
+| No Wi-Fi after moving it to another network | credentials are compiled in, or the network is 5 GHz | rebuild with `secrets.h` (step 3) |
+| Presence stays “no sensor”, gas reads `0 mV` | 5 V rail off | check the power board and the radar/MQ-2 `5V`/GND wires |
+| Gas ppm high in clean air | `R0` calibrated on a cold sensor | 5–10 min clean air → **Calibrate MQ-2** |
+| Dashboard empty but the node is online | Topic prefix mismatch | Settings → Topic prefix = `MQTT_BASE` |
+| Servo hums but does not turn | servo on 3V3, or a weak 5 V supply | servo VCC on 5 V, GND shared |
+| LED dark while someone is in front of the radar | wired as common-anode, or too dim | `LED_COMMON_ANODE 1` in `config.h`, rebuild |
 
 ## Wiring
 
@@ -83,12 +153,17 @@ mosquitto.exe listens; choose "Private networks").
 
 ## 3. Open the dashboard
 
-Open `dashboard/index.html` in a browser (double-click works). Open **Kết nối broker / Broker
-connection**, choose the preset, set **Topic prefix** = your `MQTT_BASE`, press Connect.
-Settings are remembered. You can also pass them in the URL: `index.html?prefix=nhom5-iot/home`.
+Hosted, nothing to install: **https://gorelace.github.io/iot-smarthome/?prefix=iot-smarthome/home**
+(see §4 for the Pages setup). Choose the broker preset once in **Settings**, set
+**Topic prefix** = your `MQTT_BASE`, press Connect. Settings are remembered; they can also be
+passed in the URL: `?prefix=nhom5-iot/home`.
 
 Shows: gas-safety banner, temperature / humidity / gas / presence / light / Wi-Fi tiles, live charts (5 min / 15 min / 1 h),
 IR codes received, IR "learn" button, gas threshold, publish interval, MQ-2 calibration. VI/EN and light/dark toggles.
+
+Working offline or on a LAN-only broker? `dashboard/index.html` also opens directly from the
+filesystem (`?prefix=…` works there too) — for `ws://localhost:9001` that is the only option,
+because an https page cannot use a plain `ws://` broker.
 
 No hardware yet? Run the simulator and point the dashboard at the same broker/prefix:
 ```bash
@@ -108,7 +183,7 @@ Works with Mosquitto on the same laptop (`ws://localhost:9001`) as well as HiveM
 ## 4. Web app (PWA) on GitHub Pages
 
 The dashboard is an installable web app (`manifest.webmanifest`, `sw.js`, `icons/`).
-`.github/workflows/pages.yml` publishes `dashboard/` on every push to `main`.
+`.github/workflows/page.yml` publishes `dashboard/` on every push to `main`.
 
 1. One time: GitHub repo → **Settings → Pages → Source = GitHub Actions**.
 2. `git push` → after ~1 min it's live at **https://gorelace.github.io/iot-smarthome/**
