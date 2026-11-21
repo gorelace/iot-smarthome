@@ -1,5 +1,7 @@
 # IoT Smart Home Automation (ESP32-S3 · MQTT · IR)
 
+> Giving the kit to someone else? Start with [HANDOVER.md](HANDOVER.md) — power, Wi-Fi, dashboard and troubleshooting in one page.
+
 Edge node + web dashboard for the 4-layer smart-home design in the slides:
 sensors → ESP32-S3 (edge rules) → MQTT broker → dashboard.
 
