@@ -11,6 +11,16 @@
 #define PIN_MMWAVE_RX 18  // LD2410C TX -> ESP32 RX (UART1)
 #define PIN_MMWAVE_TX 17  // ESP32 TX -> LD2410C RX (UART1; only needed to configure the module)
 #define PIN_BUZZER -1   // not wired yet; set a GPIO to enable the local gas siren
+// Discrete RGB status LED (one GPIO per channel, through 220R-330R series resistors).
+// GPIO 33-37 are used by the flash/PSRAM on octal-PSRAM (N8R8/N16R8) modules: if your board
+// has octal PSRAM, move these three to free pins (e.g. 40/41/42).
+#define PIN_LED_R   36  // red channel
+#define PIN_LED_G   37  // green channel
+#define PIN_LED_B   38  // blue channel
+#define LED_COMMON_ANODE 0  // 1 = common-anode LED (channels are driven low to light up)
+#define LED_LEDC_CH_R 3     // LEDC channels (2 is taken by the servo)
+#define LED_LEDC_CH_G 4
+#define LED_LEDC_CH_B 5
 #define PIN_SERVO   4   // servo signal (orange/yellow wire). Power the servo from 5V, NOT the 3V3 pin; share GND.
 #define SERVO_MIN_US  500    // pulse width at 0 deg   (SG90: 500, MG90S: 500)
 #define SERVO_MAX_US 2400    // pulse width at 180 deg (SG90: 2400)

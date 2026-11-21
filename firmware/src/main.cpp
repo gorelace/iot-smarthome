@@ -48,6 +48,8 @@ static const String T_IR_SEND   = T_ROOM + "/ir/send";
 static const String T_IR_SSTATE = T_ROOM + "/ir/send/state";
 static const String T_SERVO_SET = T_ROOM + "/servo/set";
 static const String T_SERVO_ST  = T_ROOM + "/servo/state";
+static const String T_LED_SET   = T_ROOM + "/led/set";
+static const String T_LED_ST    = T_ROOM + "/led/state";
 static const String T_ALERT     = String(MQTT_BASE) + "/safety/alert";
 
 // ---------------------------------------------------------------- globals
@@ -94,6 +96,10 @@ bool servoSweep = false;
 int servoDir = 1;
 uint32_t lastServoStep = 0;
 
+// status LED: manual colour set from MQTT wins over the local presence rule
+bool ledManual = false;
+uint8_t ledR = 0, ledG = 0, ledB = 0;
+
 // IR learning
 String learnDevice, learnCmd;
 uint32_t learnUntil = 0;
@@ -107,15 +113,32 @@ uint32_t lastPublish = 0, lastMq2 = 0, lastDht = 0, lastMqttTry = 0;
 
 // ---------------------------------------------------------------- helpers
 void led(uint8_t r, uint8_t g, uint8_t b) {
-#ifdef RGB_BUILTIN
-  neopixelWrite(RGB_BUILTIN, r, g, b);
+#if LED_COMMON_ANODE
+  r = 255 - r; g = 255 - g; b = 255 - b;
 #endif
+  ledcWrite(LED_LEDC_CH_R, r);
+  ledcWrite(LED_LEDC_CH_G, g);
+  ledcWrite(LED_LEDC_CH_B, b);
 }
 
+void ledInit() {
+  ledcSetup(LED_LEDC_CH_R, 5000, 8);
+  ledcSetup(LED_LEDC_CH_G, 5000, 8);
+  ledcSetup(LED_LEDC_CH_B, 5000, 8);
+  ledcAttachPin(PIN_LED_R, LED_LEDC_CH_R);
+  ledcAttachPin(PIN_LED_G, LED_LEDC_CH_G);
+  ledcAttachPin(PIN_LED_B, LED_LEDC_CH_B);
+  led(0, 0, 0);
+}
+
+// Presence scenario: the LED is the local "someone is here" indicator.
+// Red overrides everything while the gas alarm is active. A colour set over
+// MQTT (…/led/set) takes over until {"auto":true} gives control back.
 void updateLed() {
-  if (gasAlarm) led(40, 0, 0);
-  else if (!mqtt.connected()) led(0, 0, 20);
-  else led(0, 8, 0);
+  if (ledManual) led(ledR, ledG, ledB);
+  else if (gasAlarm) led(40, 0, 0);
+  else if (mmwaveOk() && mwPresent) led(24, 24, 24);
+  else led(0, 0, 0);
 }
 
 bool publishJson(const String &topic, JsonDocument &doc, bool retained = false, int qos = 0) {
@@ -123,6 +146,23 @@ bool publishJson(const String &topic, JsonDocument &doc, bool retained = false, 
   String out;
   serializeJson(doc, out);
   return mqtt.publish(topic, out, retained, qos);
+}
+
+// Reflect the LED state so the dashboard / assistant can see who owns the light.
+void publishLedState() {
+  JsonDocument d;
+  d["r"] = ledR;
+  d["g"] = ledG;
+  d["b"] = ledB;
+  d["auto"] = !ledManual;
+  d["presence"] = mmwaveOk() && mwPresent;
+  d["alarm"] = gasAlarm;
+  publishJson(T_LED_ST, d, true, 0);
+}
+
+void refreshLed() {
+  updateLed();
+  publishLedState();
 }
 
 void saveSettings() {
@@ -151,6 +191,9 @@ void publishConfig() {
   d["pins"]["mq2"] = PIN_MQ2_AO;
   d["pins"]["dht22"] = PIN_DHT22;
   d["pins"]["servo"] = PIN_SERVO;
+  d["pins"]["led_r"] = PIN_LED_R;
+  d["pins"]["led_g"] = PIN_LED_G;
+  d["pins"]["led_b"] = PIN_LED_B;
   d["pins"]["sda"] = PIN_I2C_SDA;
   d["pins"]["scl"] = PIN_I2C_SCL;
   d["pins"]["mmwave_rx"] = PIN_MMWAVE_RX;
@@ -184,7 +227,7 @@ void setAlarm(bool on) {
 #endif
   // relay_safe_off(), fan_on(), curtain_open() go here once those actuators are wired.
   publishAlert();
-  updateLed();
+  refreshLed();
 }
 
 // ---------------------------------------------------------------- MQ-2
@@ -626,6 +669,18 @@ void handleMessage(const Msg &m) {
     }
     Serial.printf("[SERVO] angle=%d sweep=%d\n", servoAngle, servoSweep);
     publishServoState();
+  } else if (m.topic == T_LED_SET) {
+    // {"r":0-255,"g":..,"b":..} = fixed colour, {"auto":true} = back to the presence rule
+    if (d["auto"].is<bool>() && d["auto"].as<bool>()) {
+      ledManual = false;
+    } else {
+      ledR = (uint8_t)(d["r"] | (int)ledR);
+      ledG = (uint8_t)(d["g"] | (int)ledG);
+      ledB = (uint8_t)(d["b"] | (int)ledB);
+      ledManual = true;
+    }
+    Serial.printf("[LED] %s r=%u g=%u b=%u\n", ledManual ? "manual" : "auto", ledR, ledG, ledB);
+    refreshLed();
   } else if (m.topic == T_IR_LEARN) {
     learnDevice = d["device"] | "dev";
     learnCmd = d["cmd"] | "cmd";
@@ -659,11 +714,12 @@ void connectMqtt() {
   mqtt.subscribe(T_IR_LEARN, 1);
   mqtt.subscribe(T_SERVO_SET, 1);
   mqtt.subscribe(T_IR_SEND, 1);
+  mqtt.subscribe(T_LED_SET, 1);
   publishConfig();
   publishServoState();
   publishIrCodes();
   publishAlert();  // refresh the retained alert so it matches the real state
-  updateLed();
+  refreshLed();
 }
 
 // ---------------------------------------------------------------- setup / loop
@@ -690,7 +746,7 @@ void setup() {
 #if PIN_BUZZER >= 0
   pinMode(PIN_BUZZER, OUTPUT);
 #endif
-  led(0, 0, 20);
+  ledInit();
 
   uint64_t mac = ESP.getEfuseMac();
   char id[24];
@@ -772,6 +828,11 @@ void loop() {
 
   handleIr();
   mmwaveLoop();
+  // Presence scenario: refresh the status LED whenever the radar state changes
+  // (also turns it off MMWAVE_TIMEOUT_MS after the sensor stops reporting).
+  static bool ledPresence = false;
+  bool presenceNow = mmwaveOk() && mwPresent;
+  if (presenceNow != ledPresence) { ledPresence = presenceNow; refreshLed(); }
   checkLearnTimeout();
   servoLoop();
   delay(5);

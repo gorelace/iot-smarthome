@@ -25,6 +25,15 @@ tools/       simulate.py: fake ESP32 for testing the dashboard without hardware
 | LD2410C mmWave | VCC / GND | 5V / GND |
 | | TX | **GPIO 18** (ESP32 RX, UART1) |
 | | RX | **GPIO 17** (ESP32 TX, UART1 — only needed to configure the module) |
+| RGB status LED | R | **GPIO 36** (through a 220–330 Ω resistor to GND) |
+| | G | **GPIO 37** (through a 220–330 Ω resistor to GND) |
+| | B | **GPIO 38** (through a 220–330 Ω resistor to GND) |
+
+> **Status LED:** common-cathode RGB LED, one GPIO per channel. It lights white while the
+> LD2410C reports presence (the "presence scenario"), goes red during a gas alarm, and is off
+> when the room is empty. Common-anode LED? Set `LED_COMMON_ANODE 1` in
+> `firmware/include/config.h`. Boards with **octal PSRAM** (N8R8/N16R8) reserve GPIO 33–37 for
+> flash/PSRAM — on those, pick free pins (e.g. 40/41/42) and update the `PIN_LED_*` defines.
 
 > **LD2410C:** the module streams target frames at **256000 baud** (factory default) and its
 > UART is 3.3 V logic, so it connects directly. ESP32 RX (18) ← module TX, ESP32 TX (17) → module RX.
@@ -149,6 +158,9 @@ Watch everything from a terminal: `mosquitto_sub -h broker.hivemq.com -t "home/#
   module), so treat them as room-scale, not precise.
 - Engineering mode (per-gate energy) is off by default; if you enable it in the vendor app the firmware
   still reads the target fields (the gate energies are ignored).
+- The on-board RGB LED (GPIO 36/37/38) is the local presence indicator: white while someone is in
+  the room, off when it is empty, red on a gas alarm. It refreshes when `presence` changes and turns
+  off 5 s after the radar stops reporting.
 
 ## Next steps (from the slides)
 
