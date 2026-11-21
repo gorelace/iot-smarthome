@@ -28,7 +28,7 @@
     --text:#000000; --text2:#3a3a3c; --muted:#8e8e93;
     --grid:rgba(0,0,0,.05);
     --accent:#007aff; --accent-ink:#fff;
-    --temp:#ff9500; --hum:#007aff; --gas:#34c759; --pres:#af52de; --lux:#ffcc00; --health:#0e7c86;
+    --temp:#ff9500; --hum:#007aff; --gas:#34c759; --pres:#af52de; --lux:#ffcc00;
     --good:#34c759; --good-bg:rgba(52,199,89,.12);
     --warn:#ff9500; --warn-bg:rgba(255,149,0,.13);
     --crit:#ff3b30; --crit-bg:rgba(255,59,48,.10);
@@ -42,7 +42,7 @@
       --bg:#000000; --surface:#1c1c1e; --surface2:#2c2c2e; --surface3:#3a3a3c;
       --border:rgba(255,255,255,.08); --border-strong:rgba(255,255,255,.2);
       --text:#ffffff; --text2:#d1d1d6; --muted:#98989d; --grid:rgba(255,255,255,.07);
-      --temp:#ff9f0a; --hum:#0a84ff; --gas:#30d158; --pres:#bf5af2; --lux:#ffd60a; --health:#64d2ff;
+      --temp:#ff9f0a; --hum:#0a84ff; --gas:#30d158; --pres:#bf5af2; --lux:#ffd60a;
       --good-bg:rgba(48,209,88,.16); --warn-bg:rgba(255,159,10,.16); --crit-bg:rgba(255,69,58,.16);
     }
   }
@@ -51,7 +51,7 @@
     --bg:#000000; --surface:#1c1c1e; --surface2:#2c2c2e; --surface3:#3a3a3c;
     --border:rgba(255,255,255,.08); --border-strong:rgba(255,255,255,.2);
     --text:#ffffff; --text2:#d1d1d6; --muted:#98989d; --grid:rgba(255,255,255,.07);
-    --temp:#ff9f0a; --hum:#0a84ff; --gas:#30d158; --pres:#bf5af2; --lux:#ffd60a; --health:#64d2ff;
+    --temp:#ff9f0a; --hum:#0a84ff; --gas:#30d158; --pres:#bf5af2; --lux:#ffd60a;
     --good-bg:rgba(48,209,88,.16); --warn-bg:rgba(255,159,10,.16); --crit-bg:rgba(255,69,58,.16);
   }
   *{box-sizing:border-box}
@@ -121,6 +121,9 @@
   .climate-side .v{font-size:28px;font-weight:800;letter-spacing:-.02em;line-height:1.15}
   .climate-side .d{font-size:13px;color:var(--muted)}
   .climate-side hr{border:0;border-top:1px solid var(--border);margin:12px 0 10px}
+  /* feels-like line inside the climate hero — the firmware's heat_index */
+  .climate-side .feels{font-size:13.5px;color:var(--muted);margin-top:7px}
+  .climate-side .feels b{color:var(--text2);font-weight:700}
   .meter{height:5px;border-radius:99px;background:var(--surface3);overflow:hidden;margin-top:8px}
   .meter i{display:block;height:100%;border-radius:99px;transition:width .5s ease}
   .meter-scale{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:5px}
@@ -144,18 +147,15 @@
   .tile .t-val small{font-size:13px;color:var(--muted);font-weight:600}
   .tile .t-sub{font-size:12.5px;color:var(--muted)}
   .tile.wide{grid-column:1/-1}
-  /* device health tile — compact label/value rows instead of one big number */
-  .health-rows{display:flex;flex-direction:column;gap:5px;width:100%}
-  .health-row{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px;line-height:1.3;min-width:0}
-  .health-row .h-label{color:var(--muted);font-weight:600;flex:none}
-  .health-row .h-val{font-weight:700;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .health-row .h-val.mono{font-size:12px;font-weight:600;letter-spacing:-.02em}
-  .sensor-dots{display:flex;gap:7px;align-items:center;justify-content:flex-end;flex-wrap:nowrap}
-  .sensor-dot{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;color:var(--text2);white-space:nowrap}
-  .sensor-dot i{width:7px;height:7px;border-radius:50%;background:var(--muted);flex:none;display:block}
-  .sensor-dot.ok i{background:var(--good)}
-  .sensor-dot.bad i{background:var(--crit)}
-  .sensor-dot.wait i{background:var(--warn)}
+  /* device health tile — label/value rows + sensor status dots */
+  .dev-rows{display:flex;flex-direction:column;gap:4px}
+  .dev-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .dev-k{font-size:13px;font-weight:600;color:var(--muted);flex:none}
+  .dev-v{font-size:13.5px;font-weight:700;letter-spacing:-.01em;text-align:right}
+  .dev-dots{display:flex;gap:10px;align-items:center}
+  .dev-dot-item{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;color:var(--text2)}
+  .sdot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+  .sdot.ok{background:var(--good)} .sdot.warn{background:var(--warn)} .sdot.bad{background:var(--crit)}
   /* mobile: gas + presence tiles were still long. Two causes, both fixed here:
      (1) the old mobile .radar rule sat BEFORE the base .radar rule further
      down, and with equal specificity the later base rule (76px) won — so the
@@ -178,16 +178,18 @@
     .tile .radar-wrap{gap:8px;margin-top:4px!important}
     .tile .radar-wrap>div>div{font-size:17px!important;line-height:1.1!important}
     .tile .blip{width:8px;height:8px}
+    /* device tile on mobile: the "Cảm biến" label gives up its space —
+       the three status dots spread across the full row instead */
+    .tile .dev-rows{gap:3px}
+    .tile .dev-k{font-size:12px}
+    .tile .dev-v{font-size:12.5px}
+    .tile .dev-sensors .dev-k{display:none}
+    .tile .dev-dots{flex:1;justify-content:space-between;gap:6px}
+    .tile .dev-dot-item{font-size:12px}
     /* upper row (gas + presence): number groups share one fixed foot height,
        so both values sit on the same baseline at the bottom of their tiles —
        the same bottom alignment lux/wi-fi already had */
     .tile-grid .tile:nth-child(-n+2) .tile-foot{height:78px}
-    .health-rows{gap:3px}
-    .health-row{font-size:12px}
-    .health-row .h-val.mono{font-size:11.5px}
-    .health-row-sensors .h-label{display:none}
-    .health-row-sensors .sensor-dots{justify-content:space-between;width:100%;gap:4px}
-    .sensor-dot{font-size:11px}
   }
 
   /* ---- gas alarm presentation ----
@@ -428,6 +430,11 @@
     .view[data-view="home"] .climate-side .k{font-size:13px}
     .view[data-view="home"] .climate-side .v{font-size:42px;line-height:1.05}
     .view[data-view="home"] .climate-side .d{font-size:15px}
+    .view[data-view="home"] .climate-side .feels{font-size:15px;margin-top:9px}
+    .view[data-view="home"] .tile .dev-rows{gap:6px}
+    .view[data-view="home"] .tile .dev-k{font-size:14px}
+    .view[data-view="home"] .tile .dev-v{font-size:14.5px}
+    .view[data-view="home"] .tile .dev-dot-item{font-size:13px}
     /* All four tiles share the compact Lux/Wi-Fi height (218px); the hero is
        exactly those two rows + the gap: 218 + 16 + 218 = 452px. Gas/Presence
        no longer dictate a taller row — Presence's radar shrinks to fit. */
@@ -441,12 +448,6 @@
     .view[data-view="home"] .tile .t-val{font-size:36px;line-height:1.1;margin-top:3px}
     .view[data-view="home"] .tile .t-val small{font-size:16px}
     .view[data-view="home"] .tile .t-sub{font-size:15px;margin-top:4px;line-height:1.35}
-    .view[data-view="home"] .health-rows{gap:8px}
-    .view[data-view="home"] .health-row{font-size:15px}
-    .view[data-view="home"] .health-row .h-val.mono{font-size:14px}
-    .view[data-view="home"] .sensor-dot{font-size:13px;gap:5px}
-    .view[data-view="home"] .sensor-dot i{width:8px;height:8px}
-    .view[data-view="home"] .sensor-dots{gap:10px}
     /* all four tiles share identical padding + icon spacing (the presence
        tile used to get tighter padding, which shifted its title up and made
        the four titles look mismatched) */
@@ -531,6 +532,7 @@
       <div class="climate-side">
         <div class="k" data-i18n="hum">Độ ẩm</div>
         <div class="v"><span id="vHum">—</span>%</div>
+        <div class="feels" id="feelsLine" hidden><span data-i18n="feels">Cảm giác như</span> <b id="vFeels">—</b></div>
       </div>
     </div>
 
@@ -571,14 +573,20 @@
         </div>
       </div>
 
-      <div class="tile" id="healthTile" aria-label="Device health">
-        <div class="t-icon" style="background:color-mix(in srgb,var(--health) 14%,transparent);color:var(--health)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M10 2v3M14 2v3M10 19v3M14 19v3M2 10h3M2 14h3M19 10h3M19 14h3"/></svg></div>
-        <div class="t-name" data-i18n="health">Thiết bị</div>
+      <div class="tile" aria-label="Device">
+        <div class="t-icon" style="background:rgba(20,140,130,.12);color:#0e7c74"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2M15 20v2M9 2v2M9 20v2M2 15h2M2 9h2M20 15h2M20 9h2"/></svg></div>
+        <div class="t-name" data-i18n="device">Thiết bị</div>
         <div class="tile-foot">
-          <div class="health-rows">
-            <div class="health-row"><span class="h-label" data-i18n="healthUptime">Uptime</span><span class="h-val" id="vUptime">—</span></div>
-            <div class="health-row"><span class="h-label">IP</span><span class="h-val mono" id="vIp">—</span></div>
-            <div class="health-row health-row-sensors"><span class="h-label" data-i18n="healthSensors">Cảm biến</span><span class="sensor-dots"><span class="sensor-dot" id="sensorDht"><i></i>DHT</span><span class="sensor-dot" id="sensorGas"><i></i>MQ-2</span><span class="sensor-dot" id="sensorRadar"><i></i>Radar</span></span></div>
+          <div class="dev-rows">
+            <div class="dev-row"><span class="dev-k">Uptime</span><span class="dev-v" id="vUptime">—</span></div>
+            <div class="dev-row"><span class="dev-k">IP</span><span class="dev-v mono" id="vIp">—</span></div>
+            <div class="dev-row dev-sensors"><span class="dev-k" data-i18n="sensorsLabel">Cảm biến</span>
+              <div class="dev-dots">
+                <span class="dev-dot-item"><i class="sdot" id="dotDht"></i>DHT</span>
+                <span class="dev-dot-item"><i class="sdot" id="dotMq2"></i>MQ-2</span>
+                <span class="dev-dot-item"><i class="sdot" id="dotRadar"></i>Radar</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -735,8 +743,8 @@
 // ------------------------------------------------------------ i18n
 const I18N = {
   en: { roomName:"Living room", title:"Smart Home", waiting:"Waiting for data…",
-    temp:"Temperature", hum:"Humidity", gas:"Gas", presence:"Presence", presenceOn:"Present", presenceOff:"Away", presenceMoving:"moving", presenceStill:"still", presenceNone:"No motion detected", presenceNoSensor:"No sensor (check GPIO 17/18)", wifi:"Wi-Fi", health:"Device health", healthUptime:"Uptime", healthSensors:"Sensors",
-    device:"Device", history:"History", historySub:"Live readings from the ESP32 — the dashed line on the gas chart is the alarm threshold.",
+    temp:"Temperature", hum:"Humidity", gas:"Gas", presence:"Presence", presenceOn:"Present", presenceOff:"Away", presenceMoving:"moving", presenceStill:"still", presenceNone:"No motion detected", presenceNoSensor:"No sensor (check GPIO 17/18)", wifi:"Wi-Fi", heatIndex:"Heat index",
+    device:"Device", sensorsLabel:"Sensors", history:"History", historySub:"Live readings from the ESP32 — the dashed line on the gas chart is the alarm threshold.",
     all:"All", clear:"Clear history", irTitle:"IR receiver (VS1838B)", irSub:"Codes from any remote appear here in real time.", learn:"Learn code",
     learnHint:"Press “Learn code”, then press a remote button aimed at the receiver within 15 s. The code is saved in the ESP32's flash.",
     irEmpty:"No codes yet.", settings:"Settings",
@@ -759,8 +767,8 @@ const I18N = {
     gasSafe:"Safe", gasWarn:"Elevated", gasAlarm:"ALARM", footNote:"Redesign preview for approval — not pushed to GitHub yet. ",
     httpsWarn:"An https page needs a wss:// broker (ws:// is blocked)" },
   vi: { roomName:"Phòng khách", title:"Nhà thông minh", waiting:"Đang chờ dữ liệu…",
-    temp:"Nhiệt độ", hum:"Độ ẩm", gas:"Khí gas", presence:"Hiện diện", presenceOn:"Có người", presenceOff:"Vắng", presenceMoving:"đang di chuyển", presenceStill:"đứng yên", presenceNone:"Không phát hiện chuyển động", presenceNoSensor:"Không thấy cảm biến (kiểm tra GPIO 17/18)", wifi:"Wi-Fi", health:"Thiết bị", healthUptime:"Uptime", healthSensors:"Cảm biến",
-    device:"Thiết bị", history:"Lịch sử", historySub:"Số đo trực tiếp từ ESP32 — nét đứt trên biểu đồ gas là ngưỡng báo động.",
+    temp:"Nhiệt độ", hum:"Độ ẩm", gas:"Khí gas", presence:"Hiện diện", presenceOn:"Có người", presenceOff:"Vắng", presenceMoving:"đang di chuyển", presenceStill:"đứng yên", presenceNone:"Không phát hiện chuyển động", presenceNoSensor:"Không thấy cảm biến (kiểm tra GPIO 17/18)", wifi:"Wi-Fi", heatIndex:"Chỉ số nhiệt",
+    device:"Thiết bị", sensorsLabel:"Cảm biến", history:"Lịch sử", historySub:"Số đo trực tiếp từ ESP32 — nét đứt trên biểu đồ gas là ngưỡng báo động.",
     all:"Tất cả", clear:"Xoá lịch sử", irTitle:"Bộ thu IR (VS1838B)", irSub:"Mã nhận được từ remote sẽ hiện ở đây theo thời gian thực.", learn:"Học mã",
     learnHint:"Bấm “Học mã”, rồi bấm nút trên remote hướng vào mắt thu trong 15 giây. Mã được lưu vào flash của ESP32.",
     irEmpty:"Chưa có mã nào.", settings:"Cài đặt",
@@ -900,20 +908,10 @@ $("rangeSeg").addEventListener("click", e => { const b = e.target.closest("butto
 $("clearBtn").onclick = () => { hist.length = 0; updateCharts(); renderTable(); };
 
 // ------------------------------------------------------------ render
-function fmtUptime(s) {
-  if (s == null || isNaN(s)) return "—";
-  s = Math.floor(s);
-  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
-  if (d > 0) return d + "d " + h + "h";
-  if (h > 0) return h + "h " + String(m).padStart(2, "0") + "m";
-  if (m > 0) return m + "m " + String(sec).padStart(2, "0") + "s";
-  return sec + "s";
-}
-function setSensorDot(id, stateName) {
-  const el = $(id); if (!el) return;
-  el.classList.remove("ok", "bad", "wait");
-  if (stateName) el.classList.add(stateName);
-}
+function fmtUptime(s) { if (s == null) return "—"; s = Math.floor(s);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h > 0 ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m`; }
+function setDot(el, cls) { el.className = "sdot" + (cls ? " " + cls : ""); }
 function render() {
   const d = state.last, banner = $("banner");
   const alarm = state.alert?.level === "alarm" || d?.gas_alarm;
@@ -926,7 +924,7 @@ function render() {
   } else if (d && !d.gas_ready) { banner.className = "banner wait"; $("bannerIcon").innerHTML = ICONS.wait; $("bannerTitle").textContent = t("warmT");
   } else if (d) { banner.className = "banner good"; $("bannerIcon").innerHTML = ICONS.ok; $("bannerTitle").textContent = t("safeT");
   } else { banner.className = "banner wait"; $("bannerIcon").innerHTML = ICONS.wait; $("bannerTitle").textContent = t("waiting"); }
-  if (!d) { if (state.config?.ip && $("vIp")) $("vIp").textContent = state.config.ip; return; }
+  if (!d) return;
 
   $("vTemp").textContent = d.temp != null ? d.temp.toFixed(1) : "—";
   $("vHum").textContent = d.hum != null ? d.hum.toFixed(0) : "—";
@@ -953,13 +951,18 @@ function render() {
     } else { blip.style.opacity = 0; blip.classList.remove("on"); }
   }
 
-  /* device health — replaces the lux tile (no lux sensor fitted) */
+  /* feels like — the firmware's heat_index (sensors payload, 0.1° steps),
+     shown as a small line inside the climate hero */
+  const hasFeels = d.heat_index != null;
+  $("feelsLine").hidden = !hasFeels;
+  if (hasFeels) $("vFeels").textContent = (+d.heat_index).toFixed(1) + "°";
+
+  /* device health tile — uptime / IP / sensor status dots */
   $("vUptime").textContent = fmtUptime(d.uptime_s);
   $("vIp").textContent = d.ip || state.config?.ip || "—";
-  const dhtOk = d.dht_status ? d.dht_status === "ok" : (d.temp != null && d.hum != null);
-  setSensorDot("sensorDht", d.dht_status || d.temp != null || d.hum != null ? (dhtOk ? "ok" : "bad") : null);
-  setSensorDot("sensorGas", !d.gas_ready ? "wait" : "ok");
-  setSensorDot("sensorRadar", d.mmwave_ok == null ? null : d.mmwave_ok ? "ok" : "bad");
+  setDot($("dotDht"), d.dht_status ? (d.dht_status === "ok" ? "ok" : "bad") : (d.temp != null ? "ok" : "bad"));
+  setDot($("dotMq2"), d.gas_ready ? "ok" : "warn");
+  setDot($("dotRadar"), d.mmwave_ok == null ? "" : (d.mmwave_ok ? "ok" : "bad"));
   $("vRssi").textContent = d.rssi ?? "—";
   $("sRssi").textContent = d.rssi != null ? t(d.rssi > -60 ? "strong" : d.rssi > -75 ? "ok" : "weak") : "";
 }
